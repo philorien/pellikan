@@ -1,7 +1,26 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { tabTitle, DEFAULT_PATH } from './useTabs.ts'
+import { tabTitle, useTabs, DEFAULT_PATH } from './useTabs.ts'
 import { verseKey, HIGHLIGHT_COLORS } from './useUserData.ts'
+
+test('restore keeps the saved active path when launched at the default route', async () => {
+  const saved = { tabs: [{ id: 'a', path: DEFAULT_PATH }, { id: 'b', path: '/read/Rom/8' }], activeId: 'b' }
+  const navigated = []
+  // Nuxt globals and localStorage do not exist under node:test, so stub the ones restore() touches.
+  Object.defineProperty(globalThis, 'localStorage', { value: { getItem: () => JSON.stringify(saved), setItem: () => {} }, configurable: true })
+  globalThis.useState = (_key, init) => ({ value: init() })
+  globalThis.navigateTo = (path, opts) => { navigated.push({ path, replace: opts?.replace }); return Promise.resolve() }
+  try {
+    const { tabs, restore } = useTabs()
+    await restore(DEFAULT_PATH)
+    assert.equal(tabs.value.find((t) => t.id === 'b').path, '/read/Rom/8', 'restore must keep the saved active path')
+    assert.deepEqual(navigated, [{ path: '/read/Rom/8', replace: true }], 'launch must replace the history entry, not add one')
+  } finally {
+    delete globalThis.localStorage
+    delete globalThis.useState
+    delete globalThis.navigateTo
+  }
+})
 
 test('tabTitle parses reader routes', () => {
   assert.deepEqual(tabTitle('/read/Rom/8'), { title: 'Romans 8', kind: 'read' })

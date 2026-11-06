@@ -33,13 +33,19 @@ export function useTabs() {
   }
 
   function restore(currentPath: string) {
+    let restored = false
     try {
       const saved = JSON.parse(localStorage.getItem(KEY) ?? 'null')
       if (saved && Array.isArray(saved.tabs) && saved.tabs.every((t: Tab) => t && typeof t.id === 'string' && typeof t.path === 'string')) {
         tabs.value = saved.tabs
         activeId.value = saved.activeId
+        restored = true
       }
     } catch { /* corrupt storage: start fresh */ }
+    // Launching at the default route means the app had no path of its own, so go back to where the saved active tab was.
+    // Replace, like the default redirect in pages/index.vue, so launching does not add a history entry.
+    const active = tabs.value.find((t) => t.id === activeId.value)
+    if (restored && active && (currentPath === '/' || currentPath === DEFAULT_PATH)) return navigateTo(active.path, { replace: true })
     sync(currentPath)
   }
 
