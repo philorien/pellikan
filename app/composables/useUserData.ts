@@ -36,6 +36,12 @@ export function useUserData() {
   const prefs = useState<Prefs>('user-prefs', () => ({ fontSize: 20, redLetters: true, focus: false, translation: 'WEB' }))
   const loaded = useState('user-data-loaded', () => false)
 
+  // Preferences are needed during page setup (before app.vue's mounted hook). Read them eagerly
+  // in the browser so the reader's first query uses the saved translation. Keep SSR deterministic.
+  if (!loaded.value && typeof localStorage !== 'undefined') {
+    prefs.value = load<Prefs>(KEYS.prefs, prefs.value)
+  }
+
   function init() {
     if (loaded.value) return
     notes.value = loadList<UserNote>(KEYS.notes)
