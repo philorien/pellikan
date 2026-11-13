@@ -137,15 +137,37 @@ for (const f of (await readdir(qdir)).filter((n) => n.endsWith('.sql'))) {
   check('every query file is registered in src-tauri/src/db.rs', !missing.length && !stale.length,
     [missing.length && `unregistered: ${missing}`, stale.length && `no file: ${stale}`].filter(Boolean).join('; '))
 }
+let u = null
 try {
-  const u = new DatabaseSync(':memory:')
+  u = new DatabaseSync(':memory:')
   u.exec('PRAGMA foreign_keys = ON')
   const sql = await readFile(ROOT + 'schema/user.sql', 'utf8')
   u.exec(sql)
   u.exec(sql) // must be idempotent: the app runs it on every launch
   check('user.sql applies twice cleanly', true)
 } catch (err) {
+  u = null
   check('user.sql applies twice cleanly', false, err.message)
+}
+// The user-database statements (notes, highlights, settings) get the same two checks against user.sql.
+if (u) {
+  const udir = qdir + 'user/'
+  const files = (await readdir(udir)).filter((n) => n.endsWith('.sql'))
+  for (const f of files) {
+    try {
+      u.prepare(await readFile(udir + f, 'utf8'))
+      check(`user query ${f} prepares`, true)
+    } catch (err) {
+      check(`user query ${f} prepares`, false, err.message)
+    }
+  }
+  const rs = await readFile(ROOT + '../src-tauri/src/db.rs', 'utf8')
+  const registered = [...rs.matchAll(/^\s*uq!\("([a-z_]+)"\),/gm)].map((m) => m[1]).sort()
+  const names = files.map((n) => n.slice(0, -4)).sort()
+  const missing = names.filter((f) => !registered.includes(f))
+  const stale = registered.filter((r) => !names.includes(r))
+  check('every user query file is registered in src-tauri/src/db.rs', !missing.length && !stale.length,
+    [missing.length && `unregistered: ${missing}`, stale.length && `no file: ${stale}`].filter(Boolean).join('; '))
 }
 
 console.log(failed ? `\n${failed} check(s) FAILED` : '\nAll checks passed')

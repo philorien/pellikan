@@ -55,7 +55,7 @@ and *pass* when `bible.db` is missing, so a CI job without it would report green
 shared/                TypeScript used by both the data scripts and the UI (books, references, morphology, text)
 data/scripts/          fetch.mjs, build-db.mjs, build-packs.mjs, check-db.mjs, translations.mjs, loaders/*
 data/schema/           bible.sql (reference DB), user.sql (user DB)
-data/queries/*.sql     every query the app runs
+data/queries/*.sql     every query the app runs on bible.db; data/queries/user/*.sql every statement on user.db
 src-tauri/src/        db.rs (named queries), packs.rs (translation packs), lib.rs (commands)
 server/                dev-only mirror of the Rust side, for `npm run dev` in a browser
 app/                   the Nuxt UI
@@ -65,14 +65,17 @@ The rules that hold it together:
 
 - **The UI never sends SQL.** It sends a query name and parameters. Rust (or the dev server) runs
   `data/queries/<name>.sql`. Parameters are bound by the names the SQL declares, and a missing one is an error.
-- **Every query file is registered in `src-tauri/src/db.rs`.** `npm run data:check` fails if one is missing.
+- **Every query file is registered in `src-tauri/src/db.rs`**, in `QUERIES` (bible.db) or `USER_QUERIES` (user.db).
+  `npm run data:check` fails if one is missing.
 - **The dev server and the Rust side are twins.** `server/utils/db.ts` and `server/utils/packs.ts` mirror `db.rs` and
   `packs.rs`. Change both or neither.
 - **Two kinds of database.** `bible.db` is read-only and ships with the app. `user.db` is the user's. Downloaded
   translations are separate read-only files. Never write to `bible.db`.
 - **Canonical verse numbering is English (KJV) with OSIS book ids.** See [Verse numbering](#verse-numbering).
-- **User data is still in `localStorage`** (notes, highlights, tabs, preferences), behind `useUserData.ts` and
-  `useTabs.ts`. Keep all access behind those so moving it to `user.db` is a one-file change.
+- **User data is in `user.db`** (notes, highlights, tabs, preferences), behind `useUserData.ts` and `useTabs.ts`.
+  Writes are named statements in `data/queries/user/`, run by the `user_query` and `user_batch` commands (or
+  `server/utils/userDb.ts` in the dev server, which keeps its own `data/build/user.db`). Components never call those
+  directly. Only the theme stays in `localStorage`.
 
 ## Data and licensing
 
@@ -179,4 +182,4 @@ Good first jobs, roughly in order of value:
 1. CI that runs the Node and Rust tests.
 2. Launch the Tauri window on macOS and fix what breaks.
 3. The accessibility fixes listed in [ACCESSIBILITY.md](ACCESSIBILITY.md#known-gaps).
-4. Move notes and highlights into `user.db` (needs Rust write commands).
+4. Bookmarks: the table exists in `user.db`, but there are no statements or UI for it yet.
