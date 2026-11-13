@@ -28,7 +28,8 @@ export function namedSql(dir: string, name: unknown): string {
 /** Binds exactly the :names the SQL uses; fails loudly if one is missing instead of binding NULL. */
 export function bindParams(sql: string, params: unknown): Bound {
   const given = (params && typeof params === 'object' ? params : {}) as Record<string, unknown>
-  const wanted = [...new Set([...sql.replace(/--.*$/gm, '').matchAll(/:([a-z_]+)/g)].map((m) => m[1]!))]
+  // Names may contain digits (:sha256); the first character is a letter or underscore.
+  const wanted = [...new Set([...sql.replace(/--.*$/gm, '').matchAll(/:([a-z_][a-z0-9_]*)/g)].map((m) => m[1]!))]
   const bound: Bound = {}
   for (const k of wanted) {
     const v = given[k]

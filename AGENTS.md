@@ -58,6 +58,18 @@ before the UI shows anything; build it with `npm run data`.
   (shown by `app.vue`) and must never look saved. The first run copies old `localStorage` data across once
   (`legacyOps`). Only the theme stays in `localStorage`, because it is read before first paint. Bookmarks have a
   table but no statements or UI yet.
+- **Imported books go through `useDocuments.ts`.** Extraction runs in the web view (`shared/doc-import.ts`, in the
+  Worker `app/workers/extract.worker.ts`) and the result is stored with the `doc*` statements in `data/queries/user/`:
+  document row as `processing`, chunks and references in batches (one JSON value per batch, see `doc_chunks_add.sql`),
+  then `ready`. A failure removes the document, so a half-imported book is never visible. Rust and the dev server know
+  nothing about file formats: a new format is a new extractor that returns an `ImportedDocument`, not new storage.
+  Imported text is always shown as text, never as HTML. Imported books stay in `user.db` and are never part of
+  `bible.db`, a pack, or the repo.
+- **Changing the `user.db` schema:** bump the version in `user.sql`, add `data/schema/migrations/user-N.sql`, and do the
+  upgrade in both `migrate_user` (`db.rs`) and `migrateUser` (`userDb.ts`) with tests for both. `user.sql` runs on every
+  launch and cannot alter a table, so a change to an existing table needs a migration. Never write one that can lose
+  rows without checking first (schema 2 refuses to drop a library that holds a document).
+- **Named parameters may contain digits** (`:sha256`). `server/utils/named.ts` and rusqlite must agree on that.
 - **The dev server keeps its own `user.db`** at `data/build/user.db` (`PELLIKAN_USER_DB` overrides it), mirrored in
   `server/utils/userDb.ts`. Keep it in step with `db.rs`, like the packs twin. Its `migrated.localStorage` marker is
   shared by every origin (port) the dev server runs on, so only the first origin's `localStorage` is copied in.

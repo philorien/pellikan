@@ -47,6 +47,15 @@ macro_rules! uq {
 /// Every file in data/queries/user must be listed here (check-db.mjs fails if one is missing). These run on user.db
 /// only, and unlike `QUERIES` they include writes.
 pub const USER_QUERIES: &[(&str, &str)] = &[
+    uq!("doc_chunks_add"),
+    uq!("doc_refs_add"),
+    uq!("document_add"),
+    uq!("document_by_hash"),
+    uq!("document_fail"),
+    uq!("document_finish"),
+    uq!("document_remove"),
+    uq!("documents_all"),
+    uq!("documents_fail_stale"),
     uq!("highlight_remove"),
     uq!("highlight_set"),
     uq!("highlights_all"),
@@ -65,11 +74,43 @@ pub struct Op {
     pub params: Map<String, Value>,
 }
 
-/// Opens the pragmas user.db relies on and applies its schema. Idempotent: safe on every launch
-/// (see data/schema/user.sql).
+/// Sets the pragmas user.db relies on, brings an older file forward, and applies the schema. Idempotent: safe on every
+/// launch (see data/schema/user.sql).
 pub fn init_user(conn: &Connection) -> Result<(), String> {
     conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;").map_err(|e| e.to_string())?;
+    migrate_user(conn)?;
     conn.execute_batch(include_str!("../../data/schema/user.sql")).map_err(|e| format!("user.db schema: {e}"))
+}
+
+/// Schema 1 -> 2 (data/schema/migrations/user-2.sql): the imported-library tables are dropped so user.sql can create
+/// them in their new shape. Refuses if any document is there, because it would be lost. Under schema 1 nothing could
+/// write to those tables, so a real file never trips this. server/utils/userDb.ts does the same.
+fn migrate_user(conn: &Connection) -> Result<(), String> {
+    let has = |name: &str| -> Result<bool, String> {
+        conn.query_row("SELECT count(*) FROM sqlite_master WHERE name = ?1", [name], |r| r.get::<_, i64>(0)).map(|n| n > 0).map_err(|e| e.to_string())
+    };
+    if !has("schema_info")? {
+        return Ok(()); // a new file: user.sql creates everything at the current version
+    }
+    let version: Option<String> = conn
+        .query_row("SELECT value FROM schema_info WHERE key = 'schema_version'", [], |r| r.get(0))
+        .map(Some)
+        .or_else(|e| if matches!(e, rusqlite::Error::QueryReturnedNoRows) { Ok(None) } else { Err(e) })
+        .map_err(|e| e.to_string())?;
+    if version.as_deref() != Some("1") {
+        return Ok(());
+    }
+    if has("documents")? {
+        let documents: i64 = conn.query_row("SELECT count(*) FROM documents", [], |r| r.get(0)).map_err(|e| e.to_string())?;
+        if documents > 0 {
+            return Err(format!("user.db holds {documents} imported document(s) in schema 1, which cannot be upgraded automatically"));
+        }
+    }
+    conn.execute_batch(&format!("BEGIN; {} COMMIT;", include_str!("../../data/schema/migrations/user-2.sql")))
+        .or_else(|e| {
+            let _ = conn.execute_batch("ROLLBACK");
+            Err(format!("user.db migration to schema 2: {e}"))
+        })
 }
 
 fn bind_value(v: &Value, key: &str) -> Result<ToSqlOutput<'static>, String> {
@@ -243,6 +284,106 @@ mod tests {
         let font: Vec<_> = settings.iter().filter(|r| r["key"] == "prefs.fontSize").collect();
         assert_eq!(font.len(), 1);
         assert_eq!(font[0]["value"], "24");
+    }
+
+    /// The schema as it was before the library tables changed shape: schema 1, with the old documents and doc_refs.
+    const SCHEMA_1_LIBRARY: &str = "
+        DROP TABLE doc_refs; DROP TABLE doc_chunks_fts; DROP TABLE doc_chunks; DROP TABLE documents;
+        CREATE TABLE documents (id INTEGER PRIMARY KEY, title TEXT NOT NULL, author TEXT, format TEXT NOT NULL,
+          original_name TEXT NOT NULL, sha256 TEXT NOT NULL UNIQUE, stored_path TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+          error TEXT, extracted_chars INTEGER, imported_at TEXT NOT NULL DEFAULT (datetime('now')));
+        CREATE TABLE doc_chunks (id INTEGER PRIMARY KEY, document_id INTEGER NOT NULL REFERENCES documents (id) ON DELETE CASCADE,
+          seq INTEGER NOT NULL, heading TEXT, loc TEXT, text TEXT NOT NULL, UNIQUE (document_id, seq));
+        CREATE VIRTUAL TABLE doc_chunks_fts USING fts5 (text, heading, content = 'doc_chunks', content_rowid = 'id');
+        CREATE TABLE doc_refs (chunk_id INTEGER NOT NULL REFERENCES doc_chunks (id) ON DELETE CASCADE, book_id INTEGER NOT NULL,
+          chapter INTEGER NOT NULL, verse_start INTEGER NOT NULL, verse_end INTEGER NOT NULL,
+          PRIMARY KEY (chunk_id, book_id, chapter, verse_start, verse_end)) WITHOUT ROWID;
+        UPDATE schema_info SET value = '1' WHERE key = 'schema_version';";
+
+    fn columns(c: &Connection, table: &str) -> Vec<String> {
+        let mut stmt = c.prepare(&format!("SELECT name FROM pragma_table_info('{table}')")).unwrap();
+        stmt.query_map([], |r| r.get::<_, String>(0)).unwrap().map(|r| r.unwrap()).collect()
+    }
+    fn version(c: &Connection) -> String {
+        c.query_row("SELECT value FROM schema_info WHERE key = 'schema_version'", [], |r| r.get(0)).unwrap()
+    }
+
+    #[test]
+    fn a_schema_1_file_is_brought_forward_and_keeps_notes_and_settings() {
+        let c = user_db();
+        run_user(&c, "note_add", &params(json!({"book": 45, "chapter": 8, "verse": 28, "body": "kept", "at": 0}))).unwrap();
+        run_user(&c, "setting_set", &params(json!({"key": "prefs.fontSize", "value": "24"}))).unwrap();
+        c.execute_batch(SCHEMA_1_LIBRARY).unwrap();
+        assert_eq!(version(&c), "1");
+        assert!(!columns(&c, "doc_refs").contains(&"confidence".to_string()));
+
+        init_user(&c).unwrap();
+
+        assert_eq!(version(&c), "2");
+        assert!(columns(&c, "doc_refs").contains(&"confidence".to_string()));
+        assert_eq!(run_user(&c, "notes_all", &params(json!({}))).unwrap()[0]["body"], "kept");
+        assert_eq!(run_user(&c, "settings_all", &params(json!({}))).unwrap().iter().filter(|r| r["key"] == "prefs.fontSize").count(), 1);
+        // The new shape works: a document without a stored file, and FTS still follows the chunks.
+        let doc = run_user(&c, "document_add", &params(json!({"title": "T", "author": null, "format": "txt", "original_name": "t.txt", "sha256": "a"}))).unwrap();
+        assert!(doc[0]["id"].as_i64().is_some());
+        init_user(&c).unwrap(); // and a file already at schema 2 is left alone
+        assert_eq!(run_user(&c, "documents_all", &params(json!({}))).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_schema_1_file_with_documents_is_not_touched() {
+        let c = user_db();
+        c.execute_batch(SCHEMA_1_LIBRARY).unwrap();
+        c.execute("INSERT INTO documents (title, format, original_name, sha256, stored_path) VALUES ('x', 'txt', 'x.txt', 'h', '/p')", []).unwrap();
+        let err = init_user(&c).unwrap_err();
+        assert!(err.contains("1 imported document"), "{err}");
+        assert_eq!(version(&c), "1");
+        assert_eq!(c.query_row("SELECT count(*) FROM documents", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
+    }
+
+    /// One book, imported the way the UI does: document, chunks, references, finish. Then removed.
+    #[test]
+    fn a_document_is_imported_searched_listed_and_removed() {
+        let mut c = user_db();
+        let doc = run_user(&c, "document_add", &params(json!({"title": "Notes on Romans", "author": "A. Writer", "format": "md", "original_name": "romans.md", "sha256": "abc"}))).unwrap();
+        let id = doc[0]["id"].as_i64().unwrap();
+        let chunks = json!([
+            {"seq": 0, "heading": "Romans 8", "loc": null, "text": "All things work together for good.", "refs": [
+                {"book": 45, "chapter": 8, "from": 28, "to": 28, "confidence": "high"},
+                {"book": 45, "chapter": 8, "from": 28, "to": 28, "confidence": "medium"},
+                {"book": 45, "chapter": 8, "from": 1, "to": 39, "confidence": "medium"}]},
+            {"seq": 1, "heading": null, "loc": "p. 2", "text": "No refs here.", "refs": []},
+        ]);
+        let ops = |name: &str| Op { name: name.into(), params: params(json!({"document": id, "chunks": chunks.to_string()})) };
+        run_user_batch(&mut c, &[ops("doc_chunks_add"), ops("doc_refs_add")]).unwrap();
+        run_user(&c, "document_finish", &params(json!({"id": id, "chars": 47}))).unwrap();
+
+        let all = run_user(&c, "documents_all", &params(json!({}))).unwrap();
+        assert_eq!((all[0]["status"].as_str(), all[0]["chunks"].as_i64(), all[0]["refs"].as_i64()), (Some("ready"), Some(2), Some(2))); // the repeated range is stored once
+        assert_eq!(c.query_row("SELECT count(*) FROM doc_chunks_fts WHERE doc_chunks_fts MATCH 'together'", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
+        let hit: String = c.query_row("SELECT confidence FROM doc_refs WHERE verse_start = 28", [], |r| r.get(0)).unwrap();
+        assert_eq!(hit, "high"); // the first one in wins; the app sends the strongest first
+
+        // The same file again is found by its hash.
+        let dup = run_user(&c, "document_by_hash", &params(json!({"sha256": "abc"}))).unwrap();
+        assert_eq!(dup[0]["id"].as_i64(), Some(id));
+
+        run_user(&c, "document_remove", &params(json!({"id": id}))).unwrap();
+        for table in ["documents", "doc_chunks", "doc_refs"] {
+            assert_eq!(c.query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get::<_, i64>(0)).unwrap(), 0, "{table}");
+        }
+        assert_eq!(c.query_row("SELECT count(*) FROM doc_chunks_fts WHERE doc_chunks_fts MATCH 'together'", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    }
+
+    #[test]
+    fn an_interrupted_import_is_marked_failed_and_a_finished_one_is_not() {
+        let c = user_db();
+        let add = |hash: &str| run_user(&c, "document_add", &params(json!({"title": hash, "author": null, "format": "txt", "original_name": "a.txt", "sha256": hash}))).unwrap()[0]["id"].as_i64().unwrap();
+        let (stuck, done) = (add("a"), add("b"));
+        run_user(&c, "document_finish", &params(json!({"id": done, "chars": 1}))).unwrap();
+        run_user(&c, "documents_fail_stale", &params(json!({}))).unwrap();
+        let status = |id: i64| c.query_row("SELECT status FROM documents WHERE id = ?1", [id], |r| r.get::<_, String>(0)).unwrap();
+        assert_eq!((status(stuck), status(done)), ("failed".to_string(), "ready".to_string()));
     }
 
     #[test]
