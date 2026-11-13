@@ -1,7 +1,7 @@
 // Scripture reference parsing: "Rom 8:28", "1 Cor 13", "Jn 3:16-18", "Song of Solomon 2:1".
 //
-// Used by the jump bar today. It is also the foundation for the planned feature that
-// detects references inside uploaded books and links them to verses.
+// parseReference reads one reference that someone typed (the jump bar). Finding references inside running text is a
+// different problem with different risks; that is scanReferences in reference-scan.ts, which shares the book names here.
 
 import { BOOKS } from './books.ts'
 import type { BookMeta } from './books.ts'
@@ -15,8 +15,9 @@ export interface ParsedReference {
 
 // Extra abbreviations beyond the OSIS id, USFM id and full name (which are added automatically).
 // An abbreviation must identify exactly one book. Ambiguous ones ("ph", "ju", "jo") are left out on purpose.
-const EXTRA: Record<string, string[]> = {
-  Gen: ['gn'],
+// Also read by reference-scan.ts, which is stricter about which of these it trusts inside running prose.
+export const EXTRA: Record<string, string[]> = {
+  Gen: ['gn', 'ge'],
   Exod: ['ex', 'exo'],
   Lev: ['lv'],
   Num: ['nm', 'nu'],
@@ -57,14 +58,14 @@ const EXTRA: Record<string, string[]> = {
   Mal: ['ml'],
   Matt: ['mt', 'mat'],
   Mark: ['mk', 'mr', 'mrk'],
-  Luke: ['lk', 'luk'],
-  John: ['jn', 'jhn'],
+  Luke: ['lk', 'luk', 'lu'],
+  John: ['jn', 'jhn', 'joh', 'jno'],
   Acts: ['ac', 'act'],
   Rom: ['ro', 'rm'],
   '1Cor': ['1co'],
   '2Cor': ['2co'],
   Gal: ['ga'],
-  Eph: ['ep'],
+  Eph: ['ep', 'ephes'],
   Phil: ['php', 'pp'],
   Col: [],
   '1Thess': ['1th', '1thes'],
@@ -74,7 +75,7 @@ const EXTRA: Record<string, string[]> = {
   Titus: ['tit'],
   Phlm: ['phm', 'philem'],
   Heb: ['he'],
-  Jas: ['jm'],
+  Jas: ['jm', 'jam'],
   '1Pet': ['1pe', '1pt'],
   '2Pet': ['2pe', '2pt'],
   '1John': ['1jn', '1jo', '1joh'],

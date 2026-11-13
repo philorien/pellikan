@@ -52,7 +52,7 @@ and *pass* when `bible.db` is missing, so a CI job without it would report green
 ## How the pieces fit
 
 ```
-shared/                TypeScript used by both the data scripts and the UI (books, references, morphology, text)
+shared/                TypeScript used by both the data scripts and the UI (books, references, verse counts, morphology, text)
 data/scripts/          fetch.mjs, build-db.mjs, build-packs.mjs, check-db.mjs, translations.mjs, loaders/*
 data/schema/           bible.sql (reference DB), user.sql (user DB)
 data/queries/*.sql     every query the app runs on bible.db; data/queries/user/*.sql every statement on user.db

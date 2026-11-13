@@ -7,6 +7,8 @@ import { DatabaseSync } from 'node:sqlite'
 import { readFile, readdir } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { toFtsQuery } from '../../shared/text.ts'
+import { VERSE_COUNTS } from '../../shared/versification.ts'
+import { scanReferences } from '../../shared/reference-scan.ts'
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url))
 const db = new DatabaseSync(ROOT + 'build/bible.db', { readOnly: true })
@@ -30,6 +32,37 @@ check('WEB has 31,103 verses', count("SELECT count(*) FROM verses WHERE translat
 check('KJV has 31,102 verses (the reference versification)', count("SELECT count(*) FROM verses WHERE translation_id='KJV'") === 31102)
 check('BSB has more than 31,000 verses', count("SELECT count(*) FROM verses WHERE translation_id='BSB'") > 31000)
 check('ASV, YLT and Darby are NOT bundled (downloaded on demand)', count("SELECT count(*) FROM verses WHERE translation_id IN ('ASV','YLT','DARBY')") === 0)
+// shared/versification.ts is a copy of the KJV's chapter and verse counts for code that has no database (the
+// reference scanner). It must match the KJV here exactly.
+{
+  const rows = db.prepare("SELECT book_id, chapter, max(verse) AS n FROM verses WHERE translation_id='KJV' GROUP BY 1, 2 ORDER BY 1, 2").all()
+  const fromDb = []
+  for (const r of rows) (fromDb[r.book_id - 1] ??= [])[r.chapter - 1] = r.n
+  const same = JSON.stringify(fromDb) === JSON.stringify(VERSE_COUNTS)
+  check('shared/versification.ts matches the KJV verse counts', same, same ? '' : 'regenerate the table from bible.db')
+}
+
+// The reference scanner (shared/reference-scan.ts), measured on real text. The Bible itself is full of book names
+// (Mark, Job, John, Kings) and has no citations, so every match in it is a false link. Matthew Henry cites constantly,
+// in the older "Rom. viii. 28" style, and says "v. 18" for the passage under discussion, which must not be linked.
+{
+  const chapters = new Map()
+  for (const v of db.prepare("SELECT book_id, chapter, text FROM verses WHERE translation_id='KJV' ORDER BY id").all()) {
+    const k = `${v.book_id}.${v.chapter}`
+    chapters.set(k, (chapters.get(k) ?? '') + v.text + ' ')
+  }
+  let stray = 0
+  for (const text of chapters.values()) stray += scanReferences(text).length
+  check('reference scanner finds no citations in the KJV text itself', stray === 0, stray ? `${stray} false matches` : '')
+
+  let high = 0
+  let medium = 0
+  for (const { body } of db.prepare("SELECT body FROM commentary_entries WHERE source_id='MHC'").all()) {
+    for (const r of scanReferences(body)) r.confidence === 'high' ? high++ : medium++
+  }
+  check('reference scanner links Matthew Henry\'s citations', high >= 30000 && medium < high / 100, `${high} high confidence, ${medium} medium`)
+}
+
 // Every translation keeps the canonical (KJV) chapter structure: same chapters, never a verse the KJV does not have.
 const strayVerses = count(`SELECT count(*) FROM verses v JOIN (SELECT book_id, chapter, max(verse) AS n FROM verses WHERE translation_id='KJV' GROUP BY 1, 2) k
   ON k.book_id = v.book_id AND k.chapter = v.chapter WHERE v.translation_id IN ('BSB') AND v.verse > k.n`)

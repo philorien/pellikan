@@ -29,7 +29,9 @@ before the UI shows anything; build it with `npm run data`.
 
 - `app/` Nuxt UI. `pages/` (read/[book]/[chapter], search, notes, highlights, library, credits), `components/`,
   `composables/` (`useBible`, `useTabs`, `useTheme`, `useUserData`), `utils/types.ts`.
-- `shared/` TypeScript used by both the UI and the data scripts: books, reference parsing, morphology decoding, text.
+- `shared/` TypeScript used by both the UI and the data scripts: books, reference parsing (`reference.ts`, one typed
+  reference) and scanning (`reference-scan.ts`, references inside prose), verse counts (`versification.ts`, generated
+  from the KJV), morphology decoding, text.
 - `data/queries/*.sql` every query the app runs on `bible.db`, and `data/queries/user/*.sql` every statement it runs
   on `user.db` (reads and writes). **Single source of truth** for Rust and the dev server.
 - `data/schema/` `bible.sql` (reference DB) and `user.sql` (user DB, idempotent).
@@ -75,6 +77,10 @@ before the UI shows anything; build it with `npm run data`.
 - **Release builds** use `npm run data:build:release` (no ESV). A plain build includes the ESV if the epub is present.
 - **References** use canonical book ids 1..66, OSIS ids in routes (`/read/Rom/8`), and English verse numbering.
   Use `shared/books.ts` and `shared/reference.ts`; do not re-implement parsing.
+- **Finding references in prose is `scanReferences`** (`shared/reference-scan.ts`). It favors precision over recall:
+  a missed link costs nothing, a wrong one makes the feature look broken. Before loosening a rule, run it on real
+  text; `data:check` scans the KJV (must find nothing) and Matthew Henry. No regex lookbehind in `shared/` or `app/`:
+  older macOS web views reject the whole script.
 - **English words are intentionally not clickable.** WEB Strong's tags on English words are unreliable in the OT
   (measured, see DATA_SOURCES.md). Word study goes through the Hebrew and Greek words.
 - **Secrets:** AI provider API keys, when added, go in the OS keychain, never a database or `localStorage`. Tighten
