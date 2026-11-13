@@ -1,6 +1,6 @@
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { useDocuments, sha256Hex, IMPORT_BATCH } from './useDocuments.ts'
+import { useDocuments, sha256Hex, extractOffThread, IMPORT_BATCH, EXTRACT_TIMEOUT_MS } from './useDocuments.ts'
 import { MAX_IMPORT_BYTES } from '../../shared/doc-import.ts'
 
 // Stand-ins for what Nuxt provides: useState, and the user.db calls from useBible.ts. The calls are recorded and
@@ -158,13 +158,70 @@ test('a failed load says so', async () => {
   assert.match(docs.error.value, /could not be loaded: documents_all failed/)
 })
 
-test('remove() deletes, refreshes the list, and reports a failure', async () => {
+test('remove() deletes, refreshes the list, says so, and reports a failure', async () => {
   const docs = useDocuments()
+  docs.documents.value = [{ id: 4, title: 'Notes on Romans' }]
   await docs.remove(4)
   assert.deepEqual(names(), ['document_remove', 'documents_all'])
   assert.deepEqual(calls[0].params, { id: 4 })
+  assert.equal(docs.notice.value, 'Removed “Notes on Romans”.') // announced in the live region
 
   failOn = (name) => name === 'document_remove'
   await docs.remove(5)
   assert.match(docs.error.value, /could not be removed: document_remove failed/)
+})
+
+// ---------------------------------------------------------------------------------------------
+// The Worker: if it never answers, crashes, or cannot start, extraction still happens.
+// ---------------------------------------------------------------------------------------------
+
+/** Installs a fake Worker class for the duration of `fn`. `behave(worker)` decides what the worker does when it is sent a job. */
+async function withWorker(behave, fn) {
+  const workers = []
+  globalThis.Worker = class {
+    constructor() { this.terminated = false; workers.push(this) }
+    postMessage(msg) { behave(this, msg) }
+    terminate() { this.terminated = true }
+  }
+  try { return await fn(workers) } finally { delete globalThis.Worker }
+}
+
+test('a Worker that never answers is given up on, and the text is extracted on this thread', async () => {
+  await withWorker(() => {}, async (workers) => {
+    const doc = await extractOffThread('Paul writes in Rom 8:28.\n', 'txt', 'a.txt', 20)
+    assert.equal(doc.chunks[0].refs.length, 1)
+    assert.equal(workers[0].terminated, true)
+  })
+})
+
+test('a Worker that crashes falls back the same way, and one that answers is used', async () => {
+  await withWorker((w) => queueMicrotask(() => w.onerror(new Error('boom'))), async (workers) => {
+    assert.equal((await extractOffThread('Some text.\n', 'txt', 'a.txt', 5000)).chunks.length, 1)
+    assert.equal(workers[0].terminated, true)
+  })
+  await withWorker((w, msg) => queueMicrotask(() => w.onmessage({ data: { ok: true, doc: { title: 'from worker', author: null, chunks: [], chars: 0 } } })), async (workers) => {
+    assert.equal((await extractOffThread('Some text.\n', 'txt', 'a.txt', 5000)).title, 'from worker')
+    assert.equal(workers[0].terminated, true)
+  })
+  await withWorker((w) => queueMicrotask(() => w.onmessage({ data: { ok: false, error: 'The file is empty.' } })), async () => {
+    await assert.rejects(extractOffThread('x', 'txt', 'a.txt', 5000), /The file is empty/)
+  })
+})
+
+test('a late answer after the timeout is ignored, and the timeout is generous', async () => {
+  await withWorker((w) => setTimeout(() => w.onmessage({ data: { ok: true, doc: { title: 'too late', author: null, chunks: [], chars: 0 } } }), 60), async () => {
+    const doc = await extractOffThread('Some text.\n', 'txt', 'a.txt', 20)
+    assert.notEqual(doc.title, 'too late')
+    await new Promise((r) => setTimeout(r, 100))
+  })
+  assert.ok(EXTRACT_TIMEOUT_MS >= 10_000)
+})
+
+test('a Worker that crashes does not stop an import, and nothing is left "importing"', async () => {
+  const docs = useDocuments()
+  await withWorker((w) => queueMicrotask(() => w.onerror(new Error('stuck'))), async () => {
+    assert.equal(await docs.importFile(file('a.txt', 'Some text.')), true)
+  })
+  assert.equal(docs.importing.value, null) // the file picker is enabled again
+  assert.equal(docs.error.value, null)
 })

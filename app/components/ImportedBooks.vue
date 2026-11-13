@@ -5,6 +5,25 @@ const { documents, loaded, importing, error, notice, load, importFile, remove } 
 const confirming = ref<number | null>(null)
 const picker = ref<HTMLInputElement | null>(null)
 
+// The buttons that change on a click disappear with it, and focus would fall back to the page. Put it somewhere sensible:
+// asking moves it to "Keep" (the safe answer), keeping returns it to the trash button, removing returns it to the
+// import button, which sits just above the message that says what happened.
+async function ask(id: number) {
+  confirming.value = id
+  await nextTick()
+  document.getElementById(`keep-${id}`)?.focus()
+}
+async function keep(id: number) {
+  confirming.value = null
+  await nextTick()
+  document.getElementById(`remove-${id}`)?.focus()
+}
+async function confirmRemove(id: number) {
+  confirming.value = null
+  await remove(id)
+  picker.value?.focus()
+}
+
 onMounted(load)
 
 async function picked(event: Event) {
@@ -61,10 +80,10 @@ const date = (ms: number) => new Date(ms).toLocaleDateString(undefined, { year: 
           <div class="shrink-0">
             <template v-if="confirming === d.id">
               <span class="mr-2 text-sm">Remove it?</span>
-              <button type="button" class="rounded px-2 py-1 text-sm font-medium text-accent hover:underline" @click="remove(d.id); confirming = null">Remove</button>
-              <button type="button" class="rounded px-2 py-1 text-sm text-muted hover:underline" @click="confirming = null">Keep</button>
+              <button type="button" class="rounded px-2 py-1 text-sm font-medium text-accent hover:underline" :aria-label="`Remove ${d.title}`" @click="confirmRemove(d.id)">Remove</button>
+              <button :id="`keep-${d.id}`" type="button" class="rounded px-2 py-1 text-sm text-muted hover:underline" :aria-label="`Keep ${d.title}`" @click="keep(d.id)">Keep</button>
             </template>
-            <button v-else type="button" class="rounded p-1.5 text-faint hover:text-fg" :aria-label="`Remove ${d.title}`" @click="confirming = d.id"><Trash2 class="size-4" /></button>
+            <button v-else :id="`remove-${d.id}`" type="button" class="rounded p-1.5 text-faint hover:text-fg" :aria-label="`Remove ${d.title}`" @click="ask(d.id)"><Trash2 class="size-4" /></button>
           </div>
         </div>
       </li>

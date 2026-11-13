@@ -34,8 +34,18 @@ export async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-/** Extracts in a Worker; if no Worker can be started, on this thread. */
-function extractOffThread(text: string, format: ImportFormat, name: string): Promise<ImportedDocument> {
+/**
+ * How long to wait for the Worker before giving up on it. Extraction runs at several MB a second (a 1.8 MB text takes
+ * well under a second), so a Worker that has not answered after this long is stuck, not slow.
+ */
+export const EXTRACT_TIMEOUT_MS = 30_000
+
+/**
+ * Extracts in a Worker. If no Worker can be started, if it fails to load or crashes, or if it never answers, extracts on
+ * this thread instead, so a Worker problem costs a brief freeze and not the ability to import (or a picker that stays
+ * disabled for the rest of the session).
+ */
+export function extractOffThread(text: string, format: ImportFormat, name: string, timeoutMs = EXTRACT_TIMEOUT_MS): Promise<ImportedDocument> {
   const inline = () => {
     try { return Promise.resolve(extractDocument(text, format, name)) } catch (err) { return Promise.reject(err) }
   }
@@ -47,16 +57,24 @@ function extractOffThread(text: string, format: ImportFormat, name: string): Pro
       inline().then(resolve, reject)
       return
     }
+    let settled = false
+    const fallBack = () => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      worker.terminate()
+      inline().then(resolve, reject)
+    }
+    const timer = setTimeout(fallBack, timeoutMs)
     worker.onmessage = (e: MessageEvent<{ ok: true; doc: ImportedDocument } | { ok: false; error: string }>) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
       worker.terminate()
       if (e.data.ok) resolve(e.data.doc)
       else reject(new Error(e.data.error))
     }
-    // The worker could not load or crashed. Try once on this thread, so a worker problem does not block importing.
-    worker.onerror = () => {
-      worker.terminate()
-      inline().then(resolve, reject)
-    }
+    worker.onerror = fallBack
     worker.postMessage({ text, format, name })
   })
 }
@@ -150,9 +168,12 @@ export function useDocuments() {
   async function remove(id: number) {
     error.value = null
     notice.value = null
+    const title = documents.value.find((d) => d.id === id)?.title
     try {
       await userQuery('document_remove', { id })
       await refresh()
+      // Said in the live region, so that a screen reader user hears that it happened.
+      notice.value = title ? `Removed “${title}”.` : 'Removed.'
     } catch (err) {
       error.value = `That book could not be removed: ${errorMessage(err)}`
     }

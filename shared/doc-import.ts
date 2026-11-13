@@ -69,18 +69,26 @@ export function titleFromFileName(fileName: string): string {
 }
 
 /**
- * Checks that decoded text looks like text. A file that is not UTF-8 decodes with replacement characters, and a binary
- * file decodes to control characters; importing either would store noise. Returns a message for the user, or null.
+ * Checks that decoded text is text. Returns a message for the user, or null.
+ *   - Any replacement character (U+FFFD) means bytes that are not valid UTF-8: a Latin-1 or Windows-1252 file decodes
+ *     to one for every accented letter. Valid UTF-8 text almost never contains one, and importing the file would store
+ *     "caf\ufffd" with no way to tell, so the file is refused. This is deliberately not a percentage: English with the odd
+ *     accent is 0.3% replacement characters and would pass a threshold while corrupting every passage.
+ *   - More than 1% control characters means a binary file.
  */
 export function textProblem(text: string): string | null {
   if (!text.trim()) return 'The file is empty.'
-  const sample = text.length > 200_000 ? text.slice(0, 200_000) : text
-  let bad = 0
-  for (let i = 0; i < sample.length; i++) {
-    const c = sample.charCodeAt(i)
-    if (c === 0xfffd || (c < 32 && c !== 9 && c !== 10 && c !== 13 && c !== 12)) bad++
+  let replaced = 0
+  let control = 0
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i)
+    if (c === 0xfffd) replaced++
+    else if (c < 32 && c !== 9 && c !== 10 && c !== 13 && c !== 12) control++
   }
-  if (bad / sample.length > 0.01) return 'This does not look like UTF-8 text. Save the file as UTF-8 and try again.'
+  if (replaced) {
+    return `${replaced === 1 ? 'One character in this file is' : `${replaced.toLocaleString('en-US')} characters in this file are`} not valid UTF-8 (the file is probably Latin-1 or Windows-1252). Save it as UTF-8 and try again.`
+  }
+  if (control / text.length > 0.01) return 'This does not look like a text file.'
   return null
 }
 
@@ -114,15 +122,34 @@ function stripInline(s: string): string {
 
 interface FrontMatter { title: string | null; author: string | null; body: string }
 
-/** A "---" block at the very top with `title:` and `author:` lines. Anything else in it is ignored. */
+/** Keys that mark a "---" block as front matter. Not an exhaustive list of what front matter can hold. */
+const FRONT_MATTER_KEYS = new Set(['title', 'author', 'authors', 'subtitle', 'date', 'tags', 'categories', 'description', 'layout', 'lang', 'language', 'draft', 'slug', 'publisher'])
+
+/**
+ * A "---" block at the very top that is metadata: `key: value` lines, and at least one key from FRONT_MATTER_KEYS. A
+ * file that merely opens with a horizontal rule ("---", then a heading, then text, then another "---") is not front
+ * matter, and treating it as such would silently drop everything between the two rules. When in doubt the block stays
+ * in the text: front matter shown as a paragraph is a blemish, a lost section is a defect.
+ */
 function frontMatter(text: string): FrontMatter {
   const m = /^---[ \t]*\n([\s\S]*?)\n(?:---|\.\.\.)[ \t]*(?:\n|$)/.exec(text)
-  if (!m) return { title: null, author: null, body: text }
+  if (!m || !looksLikeMetadata(m[1]!)) return { title: null, author: null, body: text }
   const field = (name: string) => {
     const f = new RegExp(`^${name}[ \\t]*:[ \\t]*(.+?)[ \\t]*$`, 'im').exec(m[1]!)
     return f ? f[1]!.replace(/^(["'])(.*)\1$/, '$2').trim() || null : null
   }
   return { title: field('title'), author: field('author'), body: text.slice(m[0].length) }
+}
+
+function looksLikeMetadata(block: string): boolean {
+  let known = false
+  for (const line of block.split('\n')) {
+    if (!line.trim() || /^\s/.test(line) || /^\s*(?:-\s|#)/.test(line)) continue // blank, a continuation, a list item, a comment
+    const key = /^([A-Za-z_][\w-]*)[ \t]*:(?:[ \t]|$)/.exec(line)?.[1]
+    if (!key) return false // a line of prose or a heading: this is text between two rules
+    if (FRONT_MATTER_KEYS.has(key.toLowerCase())) known = true
+  }
+  return known
 }
 
 function markdownBlocks(body: string): { blocks: Block[]; firstHeading: string | null } {
@@ -162,8 +189,13 @@ function markdownBlocks(body: string): { blocks: Block[]; firstHeading: string |
   return { blocks, firstHeading }
 }
 
+/**
+ * A roman numeral in standard form, not any run of the letters I V X L C D M: "civil" and "mild" are made of those letters
+ * and are not numerals. The lookahead stops the pattern matching the empty string.
+ */
+const ROMAN = '(?=[IVXLCDM])M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})'
 /** "CHAPTER III", "Book 2: Acts", "Part I". */
-const CHAPTER_MARKER = /^(?:chapter|book|part|section|lecture|sermon|canto)\s+(?:\d+|[ivxlc]+)\b[.:)]?(?:\s+\S.*)?$/i
+const CHAPTER_MARKER = new RegExp(`^(?:chapter|book|part|section|lecture|sermon|canto)\\s+(?:\\d+|${ROMAN})\\b[.:)]?(?:\\s+\\S.*)?$`, 'i')
 
 /**
  * Plain text has no headings, so a few conventions stand in: a chapter marker, or a short line in capitals, alone

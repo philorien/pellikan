@@ -138,6 +138,11 @@ test('a document is imported, searched, listed and removed', () => {
   runUserBatch([{ name: 'doc_chunks_add', params: { document: id, chunks } }, { name: 'doc_refs_add', params: { document: id, chunks } }])
   runUserQuery('document_finish', { id, chars: 47 })
 
+  // Only a repeated reference is skipped. A value that breaks a constraint is an error, not a silent gap.
+  const withRef = (ref) => JSON.stringify([{ seq: 0, heading: null, loc: null, text: 'x', refs: [ref] }])
+  assert.throws(() => runUserBatch([{ name: 'doc_refs_add', params: { document: id, chunks: withRef({ book: 45, chapter: 8, from: 2, to: 2, confidence: 'certain' }) } }]), /CHECK constraint failed/)
+  assert.throws(() => runUserBatch([{ name: 'doc_refs_add', params: { document: id, chunks: withRef({ book: 45, chapter: 8, from: 2, to: 2 }) } }]), /NOT NULL constraint failed/)
+
   const [doc] = runUserQuery('documents_all', {})
   assert.deepEqual({ status: doc.status, chunks: doc.chunks, refs: doc.refs, author: doc.author }, { status: 'ready', chunks: 2, refs: 2, author: 'A. Writer' })
   assert.equal(runUserQuery('document_by_hash', { sha256: 'abc' })[0].id, id)

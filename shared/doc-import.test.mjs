@@ -25,10 +25,27 @@ test('text that is not text is refused with a message for the user', () => {
   assert.match(textProblem(''), /empty/)
   assert.match(textProblem('   \n\n  '), /empty/)
   assert.match(textProblem('caf\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd'), /UTF-8/)
-  assert.match(textProblem('\u0001\u0002\u0003\u0004\u0005\u0006 binary'), /UTF-8/)
+  assert.match(textProblem('\u0001\u0002\u0003\u0004\u0005\u0006 binary'), /does not look like a text file/)
   assert.equal(textProblem('Plain text, with a tab\tand a form feed\f and accents: caf\u00e9.'), null)
   assert.throws(() => extractDocument('', 'txt', 'a.txt'), /empty/)
   assert.throws(() => extractDocument('# Heading only\n', 'md', 'a.md'), /No text was found/)
+})
+
+test('any replacement character refuses the file, however few', () => {
+  // English with an accent now and then, written as Latin-1 and read as UTF-8: 0.3% of the characters, so a percentage
+  // threshold would let it through and store a broken character in every passage.
+  const plain = 'The grace of God is sufficient for all who believe, and his mercy endures forever. '
+  let latin1 = ''
+  for (let i = 1; latin1.length < 50_000; i++) latin1 += plain + (i % 3 === 0 ? 'At the caf\u00e9 they met. ' : '')
+  const decoded = new TextDecoder('utf-8').decode(Buffer.from(latin1, 'latin1'))
+  const bad = [...decoded].filter((c) => c === '\ufffd').length
+  assert.ok(bad > 100 && bad / decoded.length < 0.01, `the sample should be below the old 1% line: ${bad}`)
+  assert.throws(() => extractDocument(decoded, 'txt', 'latin1.txt'), new RegExp(`${bad} characters in this file are not valid UTF-8`))
+
+  const long = 'A plain sentence about grace. '.repeat(2000)
+  assert.match(textProblem(`${long}\ufffd${long}`), /^One character in this file is not valid UTF-8/) // a single stray byte in 58 kB
+  assert.match(textProblem(`${long}\ufffd${long}\ufffd`), /^2 characters in this file are not valid UTF-8/)
+  assert.equal(textProblem('Valid UTF-8 with accents: caf\u00e9, na\u00efve, \u00fcber, and Greek: \u03b1\u03b2\u03b3.'), null)
 })
 
 test('markdown: title, author, headings, and markup reduced to words', () => {
@@ -59,6 +76,34 @@ test('markdown: title, author, headings, and markup reduced to words', () => {
   assert.equal(doc.chunks.length, 1) // three short paragraphs under one heading are one chunk
   assert.equal(doc.chunks[0].heading, 'Romans 8')
   assert.equal(doc.chunks[0].text, 'Paul writes no condemnation (see Rom 8:1) and life in the Spirit.\n\nA quotation: all things work together.\n\ncode stays as written')
+})
+
+test('a file that opens with a horizontal rule loses nothing between the two rules', () => {
+  const doc = extractDocument('---\n\n# My Notes\n\nFirst section about Romans 8:28 is here.\n\n---\n\nSecond section about John 3:16.\n', 'md', 'a.md')
+  assert.equal(doc.title, 'My Notes')
+  const text = doc.chunks.map((c) => c.text).join('\n')
+  assert.match(text, /First section about Romans 8:28/)
+  assert.match(text, /Second section about John 3:16/)
+  assert.deepEqual(doc.chunks.flatMap(refs).sort(), [`${ROM}.8:28`, '43.3:16'].sort())
+})
+
+test('front matter is only front matter when it is metadata', () => {
+  // A paragraph with a colon between two rules is text.
+  const note = extractDocument('---\nNote: the following is about Romans 8:28.\n---\n\nBody about John 3:16.\n', 'md', 'a.md')
+  assert.match(note.chunks[0].text, /Note: the following is about Romans 8:28/)
+  // Prose between two rules is text, even if a line happens to look like "key: value".
+  const prose = extractDocument('---\ntitle: A Real Sentence\nAnd then it keeps going as a paragraph.\n---\n\nBody.\n', 'md', 'a.md')
+  assert.match(prose.chunks[0].text, /And then it keeps going/)
+  // A block of keys we do not recognize stays in the text: shown as a paragraph is a blemish, lost text is a defect.
+  const unknown = extractDocument('---\nfoo: bar\nbaz: qux\n---\n\nBody.\n', 'md', 'a.md')
+  assert.match(unknown.chunks[0].text, /foo: bar/)
+  // Real front matter is still read, with quoting, comments, lists and continuation lines.
+  const real = extractDocument('---\n# a comment\ntitle: \'Notes: on Romans\'\ntags:\n  - study\n  - romans\nauthor: A. Writer\ndate: 2026-01-02\n---\n\nBody.\n', 'md', 'a.md')
+  assert.deepEqual([real.title, real.author, real.chunks.length, real.chunks[0].text], ['Notes: on Romans', 'A. Writer', 1, 'Body.'])
+  // Front matter with only tags and a date is still dropped.
+  assert.equal(extractDocument('---\ntags: [a]\ndate: 2026-01-02\n---\n\nBody.\n', 'md', 'a.md').chunks[0].text, 'Body.')
+  // The closing line may be "..." (YAML).
+  assert.equal(extractDocument('---\ntitle: T\n...\n\nBody.\n', 'md', 'a.md').title, 'T')
 })
 
 test('markdown without front matter takes its title from the first top-level heading', () => {
@@ -126,6 +171,19 @@ test('plain text headings: chapter markers and short lines in capitals', () => {
   assert.equal(doc.chunks[1].text, 'Therefore thou art inexcusable.\n\nHe said no.\n\nIt is finished.')
   // The all-caps first line is a heading too, with nothing under it: it names no chunk.
   assert.equal(doc.chunks.length, 2)
+})
+
+test('a chapter marker needs a real number, not a word made of numeral letters', () => {
+  const headings = (text) => extractDocument(`Intro.\n\n${text}\n\nBody.`, 'txt', 'a.txt').chunks.map((c) => c.heading).filter(Boolean)
+  assert.deepEqual(headings('Part civil war notes'), []) // "civil" is C, I, V, I, L
+  assert.deepEqual(headings('Book mild'), [])
+  assert.deepEqual(headings('Section did this'), [])
+  assert.deepEqual(headings('Chapter XIV.'), ['Chapter XIV.'])
+  assert.deepEqual(headings('CHAPTER XXXIX'), ['CHAPTER XXXIX'])
+  assert.deepEqual(headings('Book iv: The Church'), ['Book iv: The Church'])
+  assert.deepEqual(headings('Part 3'), ['Part 3'])
+  assert.deepEqual(headings('Lecture MCMXC'), ['Lecture MCMXC'])
+  assert.deepEqual(headings('Chapter IIII'), []) // not standard form
 })
 
 test('short ordinary lines are not headings', () => {

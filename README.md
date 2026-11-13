@@ -244,7 +244,7 @@ Checked, with the commands that check it:
 - **Data build** from the real upstream files. `npm run data:check` runs 85 checks: database integrity,
   verse counts, Hebrew and English chapters ending on the same verse, search ranking, every query preparing, and
   spot checks on the lexicons, commentary and cross-references.
-- **114 Node unit tests** (`npm test`) covering the parsers and loaders, the Scripture reference scanner, text and
+- **122 Node unit tests** (`npm test`) covering the parsers and loaders, the Scripture reference scanner, text and
   Markdown import (extraction, chunking, and the import flow including a failed save removing the half-imported book),
   the dev server's query runners, and the
   conversions that move older `localStorage` data into `user.db`.

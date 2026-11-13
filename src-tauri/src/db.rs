@@ -364,6 +364,15 @@ mod tests {
         let hit: String = c.query_row("SELECT confidence FROM doc_refs WHERE verse_start = 28", [], |r| r.get(0)).unwrap();
         assert_eq!(hit, "high"); // the first one in wins; the app sends the strongest first
 
+        // Only a repeated reference is skipped. A value that breaks a constraint is an error, not a silent gap.
+        let bad = json!([{"seq": 0, "heading": null, "loc": null, "text": "x", "refs": [{"book": 45, "chapter": 8, "from": 2, "to": 2, "confidence": "certain"}]}]);
+        let bad_op = Op { name: "doc_refs_add".into(), params: params(json!({"document": id, "chunks": bad.to_string()})) };
+        assert!(run_user_batch(&mut c, &[bad_op]).unwrap_err().contains("CHECK constraint failed"));
+        let missing = json!([{"seq": 0, "heading": null, "loc": null, "text": "x", "refs": [{"book": 45, "chapter": 8, "from": 2, "to": 2}]}]);
+        let missing_op = Op { name: "doc_refs_add".into(), params: params(json!({"document": id, "chunks": missing.to_string()})) };
+        assert!(run_user_batch(&mut c, &[missing_op]).unwrap_err().contains("NOT NULL constraint failed"));
+        assert_eq!(c.query_row("SELECT count(*) FROM doc_refs", [], |r| r.get::<_, i64>(0)).unwrap(), 2);
+
         // The same file again is found by its hash.
         let dup = run_user(&c, "document_by_hash", &params(json!({"sha256": "abc"}))).unwrap();
         assert_eq!(dup[0]["id"].as_i64(), Some(id));
