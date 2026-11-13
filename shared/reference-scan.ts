@@ -9,7 +9,9 @@
 //   - A book name with a capital first letter, then a chapter. Lowercase "john 3:16" is not treated as a citation.
 //   - The chapter and verse must exist (versification.ts, KJV numbering). "Luke 30:1" and "Rom 8:40" are dropped.
 //   - Full names and standard abbreviations (Romans, Rom, Ps) may cite a chapter alone: "Romans 8". That is the
-//     weakest form, so it is marked medium confidence.
+//     weakest form, so it is marked medium confidence, and it is dropped when a quantity follows: "Mark 5 times",
+//     "Job 3 years ago", "Numbers 10 to 20" (QUANTITY_WORDS).
+//   - Nothing followed by a clock suffix is a reference: "Meet Mark 5:30 pm", "Luke 12:30 p.m.".
 //   - Other abbreviations (Mt, Jn, Gn) need chapter and verse.
 //   - Abbreviations that are also English words (Is, Am, He) additionally need a citation around them: an opening
 //     bracket, a list separator, or a full stop after the abbreviation. "Is 5:30 okay for dinner?" is not Isaiah.
@@ -25,8 +27,17 @@
 // documentation (versions, columns, times). In Easton's and Smith's dictionaries, about 40,000 links, and the
 // look-alikes left unlinked were typos in the source, books outside the 66, and bare "See 3:17".
 //
-// Known gaps, on purpose: "John chapter 3 verse 16" spelled out, "and" in lists ("vv. 3 and 5"), a bare chapter after a
-// semicolon ("Matt 5:3; 15"), and citations in Hebrew or Greek verse numbering where it differs from English.
+// Known gaps, on purpose:
+//   - "John chapter 3 verse 16" spelled out, "and" in lists ("vv. 3 and 5", "Acts 2 and 3" links only Acts 2), and a
+//     bare chapter after a semicolon ("Matt 5:3; 15").
+//   - Citations in Hebrew or Aramaic verse numbering where it differs from English. Dan 3:31-33, Mal 3:19-24 and Joel
+//     3:1-5 (English 2:28-32) exist only in that numbering, so they are dropped or, where the English chapter happens to
+//     be long enough, linked to the English verse of the same number. Jewish and many modern commentaries cite this way.
+//     Fixing it needs to know which numbering a document uses (DATA_SOURCES.md, "Verse numbering").
+//   - A citation may wrap onto the next line once ("Rom.\n8:28"), because hard-wrapped public-domain texts break
+//     there. The cost is that "said Mark\n5:30" in a transcript links too. A chapter alone never wraps.
+//   - Books whose names are also given names (Mark, Luke, John, Job, Amos, Ruth, Joel) followed by a number and a word
+//     that is not in QUANTITY_WORDS still link a chapter alone at medium confidence: "gave Mark 5 apples" is Mark 5.
 //
 // No lookbehind in the regular expressions: the desktop app runs in the system web view, and older macOS versions
 // reject a script that contains one. The character before a match is checked by hand instead.
@@ -126,7 +137,7 @@ function resolveBook(text: string, m: RegExpExecArray, t: AliasTable): BookMatch
   const wordsStart = m.index + m[0].length - words.length
   const end = m.index + m[0].length
   if (!isUpper(words[0])) return null
-  const key = words.toLowerCase().replace(/[ \t ]+/g, ' ')
+  const key = words.toLowerCase().replace(/[ \t\u00a0]+/g, ' ')
   if (prefix) {
     const n = prefixNumber(prefix)
     const before = text[m.index - 1]
@@ -182,11 +193,47 @@ function romanValue(s: string): number {
 
 interface Span { verse: number; endChapter: number; endVerse: number; end: number }
 
+// "5:30 pm", "12:30 p.m.", "3 o'clock". Not "AMP" (the Amplified Bible) or "amen": the suffix must end the word.
+const CLOCK = new RegExp(`${SP}*(?:[ap]\\.?m\\.?|o['\u2019]clock)(?![A-Za-z])`, 'iy')
+
+/**
+ * Words that, right after "Mark 5", make the number a count: "Mark 5 times", "Job 3 years ago", "Amos 5 people came".
+ * Only consulted for a chapter alone: "Mark 5:3 times" is already a reference by its colon.
+ */
+const QUANTITY_WORDS = new Set([
+  'time', 'times', 'x', 'second', 'seconds', 'sec', 'secs', 'minute', 'minutes', 'min', 'mins', 'hour', 'hours', 'hr', 'hrs',
+  'day', 'days', 'night', 'nights', 'week', 'weeks', 'wk', 'wks', 'month', 'months', 'year', 'years', 'yr', 'yrs',
+  'decades', 'centuries',
+  'people', 'persons', 'men', 'women', 'kids', 'children', 'adults', 'guests', 'members', 'players', 'students', 'others',
+  'percent', 'pct', 'pages', 'miles', 'km', 'kilometers', 'kilometres', 'meters', 'metres', 'feet', 'ft', 'inches',
+  'pounds', 'lb', 'lbs', 'kg', 'kilos', 'grams', 'oz', 'ounces', 'dollars', 'cents', 'euros', 'bucks',
+  'points', 'pts', 'goals', 'runs', 'laps', 'rounds', 'games', 'wins', 'losses', 'votes', 'stars', 'items', 'copies', 'steps',
+])
+// Short words such as "in", "g", "m" or "more" are left out on purpose: "Psalm 23 in the KJV" is a citation.
+
+/** "Numbers 10 to 20", "Mark 5 or 6", "Luke 3 x 4", "John 5 of 9": a word between two numbers. Not "and": "Romans 8 and 9". */
+const BETWEEN_NUMBERS = new Set(['to', 'or', 'x', 'by', 'of', 'through', 'thru', 'out', 'plus', 'minus', 'times'])
+const NEXT_WORD = new RegExp(`${SP}+([A-Za-z][A-Za-z'\u2019]*)\\.?(?:${SP}+(\\d))?`, 'y')
+
+/** True when what follows `pos` makes a bare number read as a count or a time rather than a chapter. */
+function countFollows(text: string, pos: number): boolean {
+  if (at(CLOCK, text, pos)) return true
+  const m = at(NEXT_WORD, text, pos)
+  if (!m) return false
+  const word = m[1]!.toLowerCase()
+  return QUANTITY_WORDS.has(word) || (m[2] !== undefined && BETWEEN_NUMBERS.has(word))
+}
+
 /**
  * Reads a verse at `pos` (which is at a digit) with whatever follows it: a part letter, f./ff., or a range. Returns
- * null if the verse or its range does not exist in `chapter`.
+ * null if the verse or its range does not exist in `chapter`, or if it is a clock time ("5:30 pm").
  */
 function verseSpan(text: string, pos: number, bookId: number, chapter: number): Span | null {
+  const span = verseSpanAt(text, pos, bookId, chapter)
+  return span && !at(CLOCK, text, span.end) ? span : null
+}
+
+function verseSpanAt(text: string, pos: number, bookId: number, chapter: number): Span | null {
   const m = at(VERSE, text, pos)
   if (!m) return null
   const verse = Number(m[1])
@@ -253,6 +300,7 @@ function afterBook(text: string, found: BookMatch, t: AliasTable, out: ScannedRe
       const next = text[pos]
       if (alias.tier !== 'name' || wrapped || (dotted && alias.full)) return false
       if (isAlnum(next) || next === '%' || /^,\d{3}(?!\d)/.test(text.slice(pos, pos + 5)) || new RegExp(`^${DASH}[A-Za-z]`).test(text.slice(pos, pos + 2))) return false
+      if (countFollows(text, pos)) return false
       if (chapterCount(book.id) === 1) {
         // Jude 5, Philemon 6: the book has one chapter, so the number is a verse.
         chapter = 1
@@ -268,6 +316,8 @@ function afterBook(text: string, found: BookMatch, t: AliasTable, out: ScannedRe
           const afterTo = pos + dash[0].length + to[0].length
           const n = Number(to[1])
           if (n > chapter && n <= chapterCount(book.id) && !isAlnum(text[afterTo]) && !at(VERSE_SEP, text, afterTo)) {
+            // "Mark 5-7 years" is an age range.
+            if (countFollows(text, afterTo)) return false
             endChapter = n
             pos = afterTo
           }
@@ -330,7 +380,9 @@ function afterBook(text: string, found: BookMatch, t: AliasTable, out: ScannedRe
 // ---------------------------------------------------------------------------------------------
 
 const VERSE_WORD = new RegExp(`(?:vv?\\.|vss?\\.|ver\\.|verses?)${SP}*(?=\\d)`, 'gi')
-const PARAGRAPH_BREAK = /\n[ \t ]*\r?\n/
+const PARAGRAPH_BREAK = /\n[ \t\u00a0]*\r?\n/
+/** "ch. 5", "chap. v", "chapter 12": another chapter, of a book the scanner may not know, has been named. */
+const OTHER_CHAPTER = /\b(?:ch|chap)\.[ \t\u00a0]*(?:\d|[clxvi]+\b)|\bchapter[ \t\u00a0]+\d/i
 /** How far back a "v. 5" may look for its chapter, in characters. */
 const CONTEXT_REACH = 2000
 
@@ -373,7 +425,8 @@ export function scanReferences(text: string): ScannedReference[] {
     const digits = m.index + m[0].length
     pos = digits
     if (!topic || isAlnum(text[m.index - 1]) || m.index - topic.end > CONTEXT_REACH) continue
-    if (PARAGRAPH_BREAK.test(text.slice(topic.end, m.index))) { topic = null; continue }
+    const between = text.slice(topic.end, m.index)
+    if (PARAGRAPH_BREAK.test(between) || OTHER_CHAPTER.test(between)) { topic = null; continue }
     // "ch. v. 4" is chapter five, verse four, of a book the scanner cannot name.
     if (/ch(?:ap)?\.[ \t\u00a0]*$/i.test(text.slice(Math.max(0, m.index - 8), m.index))) continue
     let span = verseSpan(text, digits, topic.book.id, topic.chapter)

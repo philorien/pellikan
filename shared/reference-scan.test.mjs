@@ -171,6 +171,8 @@ test('verse-only mentions belong to the chapter the paragraph has named on its o
     // ...and is not a topic itself: in a commentary "v. 18" means the passage being discussed, which is unknown here.
     ['Both shall be one in Christ (Eph. ii. 14, 15), as it is promised, v. 18.', ['Eph 2:14', 'Eph 2:15']],
     ['John 3:16 is well known; verse 17 is not.', ['John 3:16']],
+    // Another chapter named in between ends the topic: "v. 29" here is in chapter 5.
+    ['In Romans 8 the name is God, while in ch. 5 it is the Lord, except in v. 29.', ['Rom 8?']],
     // "ch. v. 4" is chapter five, verse four, of some book.
     ['Romans 8 is sweet, but the end was bitter, Prov. ix. 17, and ch. v. 4.', ['Rom 8?', 'Prov 9:17']],
     // Not across a paragraph break.
@@ -224,10 +226,45 @@ test('words that only look like books', () => {
   ])
 })
 
+test('counts and clock times after a book that is also a name', () => {
+  each([
+    // A chapter alone followed by a quantity is a count.
+    ['Call Mark 5 times.', []],
+    ['Job 3 years ago', []],
+    ['Numbers 10 to 20', []],
+    ['Amos 5 people came', []],
+    ['John 5 minutes later', []],
+    ['Luke 2 days', []],
+    ['Jude 5 minutes', []],
+    ['Mark 5-7 years old', []],
+    ['gave Ruth 4 dollars', []],
+    // A time is never a reference, even when the verse exists.
+    ['Meet Mark 5:30 pm', []],
+    ['Luke 12:30 p.m.', []],
+    ['Ruth 1:16 AM', []],
+    ['Mark 5:30pm', []],
+    ["Job 2 o'clock", []],
+    ['said Mark\n5:30 pm', []],
+    // Still citations.
+    ['Psalm 23 in the KJV', ['Ps 23?']],
+    ['Romans 8 and 9', ['Rom 8?']], // "and" in lists is a known gap: only Romans 8
+    ['Ps 23:1 AMP', ['Ps 23:1']], // the Amplified Bible, not a.m.
+    ['Matthew 5 to 7', []], // a range written with "to" is dropped, not half linked
+  ])
+})
+
+test('documented tradeoffs', () => {
+  // A citation may wrap once, because hard-wrapped texts break there. The cost: a name at a line end, then a time
+  // without am/pm, links.
+  each([['said Mark\n5:30 tomorrow', ['Mark 5:30']]])
+  // Hebrew and Aramaic numbering: verses that exist only there are dropped (English numbering is canonical).
+  each([['Dan 3:31', []], ['Mal 3:19', []]])
+})
+
 test('line breaks and odd spacing inside a citation', () => {
   each([
     ['Rom.\n8:28', ['Rom 8:28']],
-    ['Rom 8:28', ['Rom 8:28']],
+    ['Rom\u00a08:28', ['Rom 8:28']],
     ['Rom 8 : 28', ['Rom 8:28']],
     ['Rom.8:28', ['Rom 8:28']],
   ])
