@@ -44,15 +44,15 @@ Before opening a PR, run what applies to your change:
 On macOS, if `cargo` fails to link with `tapi error: malformed file`, use an older SDK:
 `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk cargo test --lib`.
 
-There is **no continuous integration yet**, so nothing runs these for you. Adding a workflow that runs `npm test` and
-`cargo test --lib` is the most useful maintenance task available. **Watch out:** the Rust tests that need data return early
-and *pass* when `bible.db` is missing, so a CI job without it would report green while checking nothing. Run
-`npm run data` first (it downloads about 100 MB) and keep that step.
+CI (`.github/workflows/ci.yml`) runs `npm test`, `npm run build`, a release data build, `npm run data:check` and
+`cargo test --lib` on Linux for every pull request and push to `main`. It does not run macOS, the Tauri window or any
+UI, so it does not replace using the feature yourself. **Watch out:** the Rust tests that need data return early and
+*pass* when `bible.db` is missing, so the data build step in that workflow must stay ahead of `cargo test`.
 
 ## How the pieces fit
 
 ```
-shared/                TypeScript used by both the data scripts and the UI (books, references, verse counts, morphology, text)
+shared/                TypeScript used by both the data scripts and the UI (books, references, reference scanning, book import, verse counts, morphology, text)
 data/scripts/          fetch.mjs, build-db.mjs, build-packs.mjs, check-db.mjs, translations.mjs, loaders/*
 data/schema/           bible.sql (reference DB), user.sql (user DB)
 data/queries/*.sql     every query the app runs on bible.db; data/queries/user/*.sql every statement on user.db
@@ -72,7 +72,7 @@ The rules that hold it together:
 - **Two kinds of database.** `bible.db` is read-only and ships with the app. `user.db` is the user's. Downloaded
   translations are separate read-only files. Never write to `bible.db`.
 - **Canonical verse numbering is English (KJV) with OSIS book ids.** See [Verse numbering](#verse-numbering).
-- **User data is in `user.db`** (notes, highlights, tabs, preferences), behind `useUserData.ts` and `useTabs.ts`.
+- **User data is in `user.db`** (notes, highlights, tabs, preferences, imported books), behind `useUserData.ts` and `useTabs.ts`.
   Writes are named statements in `data/queries/user/`, run by the `user_query` and `user_batch` commands (or
   `server/utils/userDb.ts` in the dev server, which keeps its own `data/build/user.db`). Components never call those
   directly. Only the theme stays in `localStorage`.
@@ -82,6 +82,20 @@ The rules that hold it together:
 Books a user imports are theirs: they go in `user.db` on that computer and are never part of `bible.db`, a translation
 pack, a release, or this repository. Do not commit a sample book you do not have the right to share. The tests build
 their text in code.
+
+Plain text and Markdown import works today. The flow is in `app/composables/useDocuments.ts`: extraction runs in the web
+view (`shared/doc-import.ts`, in a Worker), Scripture references are found with `scanReferences`
+(`shared/reference-scan.ts`), and the result is stored with the `doc*` statements in `data/queries/user/`. A failure
+removes the document, so a half-imported book is never visible. Rust and the dev server know nothing about file
+formats: a new format (EPUB, DOCX, PDF) is a new extractor that returns an `ImportedDocument`, not new storage. Imported
+text is always rendered as text, never as HTML.
+
+## Changing the `user.db` schema
+
+`user.sql` runs on every launch and cannot alter an existing table. To change one: bump the version in `user.sql`, add
+`data/schema/migrations/user-N.sql`, and do the upgrade in both `migrate_user` (`src-tauri/src/db.rs`) and
+`migrateUser` (`server/utils/userDb.ts`), with tests for both. Never write a migration that can lose rows without
+checking first: schema 2 refuses to drop the library tables if a document exists.
 
 ## Data and licensing
 
@@ -185,7 +199,7 @@ To report a vulnerability, open a private security advisory on the repository ra
 
 Good first jobs, roughly in order of value:
 
-1. CI that runs the Node and Rust tests.
-2. Launch the Tauri window on macOS and fix what breaks.
-3. The accessibility fixes listed in [ACCESSIBILITY.md](ACCESSIBILITY.md#known-gaps).
-4. Bookmarks: the table exists in `user.db`, but there are no statements or UI for it yet.
+1. Launch the Tauri window on macOS and fix what breaks.
+2. The accessibility fixes listed in [ACCESSIBILITY.md](ACCESSIBILITY.md#known-gaps).
+3. Bookmarks: the table exists in `user.db`, but there are no statements or UI for it yet.
+4. Linting and formatting config (there is none yet).
