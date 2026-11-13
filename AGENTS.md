@@ -57,7 +57,10 @@ before the UI shows anything; build it with `npm run data`.
   (`legacyOps`). Only the theme stays in `localStorage`, because it is read before first paint. Bookmarks have a
   table but no statements or UI yet.
 - **The dev server keeps its own `user.db`** at `data/build/user.db` (`PELLIKAN_USER_DB` overrides it), mirrored in
-  `server/utils/userDb.ts`. Keep it in step with `db.rs`, like the packs twin.
+  `server/utils/userDb.ts`. Keep it in step with `db.rs`, like the packs twin. Its `migrated.localStorage` marker is
+  shared by every origin (port) the dev server runs on, so only the first origin's `localStorage` is copied in.
+- **New Tauri commands go in `handlers()` in `lib.rs`**, the one list `run()` and the IPC tests share. Test them
+  through `ipc_tests` (mock runtime) with the same argument shape the web view sends.
 - **Canonical verse numbering** is English (KJV) with OSIS book ids. The KJV is the reference versification; every
   bundled translation is checked against it in `build-db.mjs`. A text that numbers verses differently needs a mapping
   table first (see DATA_SOURCES.md). Decide this before adding sources, not after.

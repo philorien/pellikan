@@ -1,4 +1,5 @@
-import { test } from 'node:test'
+import { test, beforeEach } from 'node:test'
+import { readFileSync } from 'node:fs'
 import assert from 'node:assert/strict'
 import { legacyOps, noteFromRow, highlightsFromRows, prefsFromSettings, useUserData, DEFAULT_PREFS, TABS_SETTING, MIGRATED_SETTING } from './useUserData.ts'
 import { parseSavedTabs } from './useTabs.ts'
@@ -26,6 +27,8 @@ test('legacyOps skips malformed notes instead of failing the whole copy', () => 
       { osis: 'Nope', chapter: 1, verse: 1, body: 'unknown book', at: 1 },
       { osis: 'Gen', chapter: '1', verse: 1, body: 'chapter is a string', at: 1 },
       { osis: 'Gen', chapter: 1, verse: 1, body: '   ', at: 1 },
+      { osis: 'Gen', chapter: 0, verse: 1, body: 'chapter 0', at: 1 },
+      { osis: 'Gen', chapter: 1, verse: 0, body: 'verse 0', at: 1 },
       { osis: 'Gen', chapter: 1, verse: 1, body: 'no date' },
     ],
   }, NOW)
@@ -37,7 +40,7 @@ test('legacyOps skips malformed notes instead of failing the whole copy', () => 
 test('legacyOps copies highlights, preferences and tabs', () => {
   const tabs = { tabs: [{ id: 't1', path: '/read/Rom/8' }], activeId: 't1' }
   const ops = legacyOps({
-    highlights: { 'Ps.23.1': 'yellow', '1Cor.13.4': 'rose', 'Ps.23.2': 'purple', 'Bogus.1.1': 'blue', 'Ps.x.1': 'blue' },
+    highlights: { 'Ps.23.1': 'yellow', '1Cor.13.4': 'rose', 'Ps.23.2': 'purple', 'Bogus.1.1': 'blue', 'Ps.x.1': 'blue', 'Ps..1': 'blue', 'Ps.23.': 'blue', 'Ps.0.1': 'blue' },
     prefs: { fontSize: 24, redLetters: false, translation: 'KJV', focus: 'yes', unknown: 1 },
     tabs,
   }, NOW)
@@ -82,9 +85,6 @@ test('parseSavedTabs accepts only the expected shape', () => {
 // init(): the saved preferences have to be in place before the first page sets up (plugins/user-data.client.ts
 // awaits it), or the reader's first query runs in the default translation and then switches.
 // ---------------------------------------------------------------------------------------------
-
-import { beforeEach } from 'node:test'
-import { readFileSync } from 'node:fs'
 
 const states = new Map()
 globalThis.useState = (key, init) => {
@@ -138,4 +138,19 @@ test('if user.db cannot be read, init() resolves, says so, and prefs keep the de
 test('the client plugin waits for init() before the app mounts', () => {
   const plugin = readFileSync(new URL('../plugins/user-data.client.ts', import.meta.url), 'utf8')
   assert.match(plugin, /await\s+useUserData\(\)\.init\(\)/)
+})
+
+test('if user.db never answers, init() resolves after the timeout with an error, and a late answer still applies', async () => {
+  let answer
+  globalThis.userQuery = (name) => (name === 'settings_all' && !answer ? new Promise((resolve) => { answer = resolve }) : Promise.resolve([]))
+  const { prefs, error, loaded, init } = useUserData()
+  await init(20)
+  assert.equal(loaded.value, false)
+  assert.match(error.value, /taking too long/)
+
+  answer([{ key: MIGRATED_SETTING, value: '1' }, { key: 'prefs.translation', value: '"KJV"' }])
+  await new Promise((r) => setTimeout(r, 10))
+  assert.equal(loaded.value, true)
+  assert.equal(prefs.value.translation, 'KJV')
+  assert.equal(error.value, null)
 })

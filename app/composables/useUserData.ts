@@ -30,6 +30,8 @@ const LEGACY_KEYS = { notes: 'pellikan.notes', highlights: 'pellikan.highlights'
 export const verseKey = (osis: string, chapter: number, verse: number) => `${osis}.${chapter}.${verse}`
 
 const isCount = (n: unknown): n is number => Number.isInteger(n) && (n as number) >= 0
+/** Chapters and verses start at 1. A malformed key like "Ps..1" gives Number('') === 0, which this rejects. */
+const isPositive = (n: unknown): n is number => Number.isInteger(n) && (n as number) >= 1
 const isColor = (c: unknown): c is HighlightColor => HIGHLIGHT_COLORS.includes(c as HighlightColor)
 
 // ---------------------------------------------------------------------------------------------
@@ -81,7 +83,7 @@ export function legacyOps(legacy: { notes?: unknown; highlights?: unknown; prefs
   const notes: Array<{ at: number; op: UserOp }> = []
   for (const n of Array.isArray(legacy.notes) ? legacy.notes : []) {
     const book = BOOK_BY_OSIS[n?.osis]
-    if (!book || !isCount(n.chapter) || !isCount(n.verse) || typeof n.body !== 'string' || !n.body.trim()) continue
+    if (!book || !isPositive(n.chapter) || !isPositive(n.verse) || typeof n.body !== 'string' || !n.body.trim()) continue
     const at = isCount(n.at) ? n.at : now
     notes.push({ at, op: { name: 'note_add', params: { book: book.id, chapter: n.chapter, verse: n.verse, body: n.body, at } } })
   }
@@ -92,7 +94,7 @@ export function legacyOps(legacy: { notes?: unknown; highlights?: unknown; prefs
   for (const [key, color] of Object.entries(highlights)) {
     const [osis, chapter, verse] = key.split('.')
     const book = BOOK_BY_OSIS[osis ?? '']
-    if (!book || !isCount(Number(chapter)) || !isCount(Number(verse)) || !isColor(color)) continue
+    if (!book || !isPositive(Number(chapter)) || !isPositive(Number(verse)) || !isColor(color)) continue
     ops.push({ name: 'highlight_set', params: { book: book.id, chapter: Number(chapter), verse: Number(verse), color } })
   }
 
@@ -118,6 +120,13 @@ function readLegacy() {
 
 /** The load in progress, shared so that two callers of init() do not load (or migrate) twice. */
 let starting: Promise<void> | null = null
+
+/**
+ * How long the app waits for user.db before mounting anyway. Loading normally takes milliseconds; this only matters if
+ * a call never returns (a stalled IPC, a command the web view is not allowed to call), which would otherwise leave a
+ * blank window with no message.
+ */
+export const LOAD_TIMEOUT_MS = 5000
 
 export function useUserData() {
   const notes = useState<UserNote[]>('user-notes', () => [])
@@ -149,10 +158,22 @@ export function useUserData() {
     }
   }
 
-  /** Loads everything from user.db. Call once on the client; resolves either way, with `error` set on failure. */
-  function init(): Promise<void> {
+  /**
+   * Loads everything from user.db. Call once on the client. Always resolves: on failure, or if loading takes longer
+   * than `timeoutMs`, with `error` set and `loaded` still false. A load that finishes after the timeout still applies
+   * its data and clears the error.
+   */
+  function init(timeoutMs = LOAD_TIMEOUT_MS): Promise<void> {
     if (loaded.value) return Promise.resolve()
-    return (starting ??= start().finally(() => { starting = null }))
+    const load = (starting ??= start().finally(() => { starting = null }))
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<void>((resolve) => {
+      timer = setTimeout(() => {
+        if (!loaded.value && !error.value) error.value = 'Your notes, highlights and settings are taking too long to load. Changes you make now may not be saved.'
+        resolve()
+      }, timeoutMs)
+    })
+    return Promise.race([load, timeout]).finally(() => clearTimeout(timer))
   }
 
   const failed = (err: unknown) => { error.value = `That change could not be saved: ${errorMessage(err)}` }
@@ -207,5 +228,5 @@ export function useUserData() {
     for (const [key, value] of Object.entries(patch)) void setSetting(PREF + key, JSON.stringify(value))
   }
 
-  return { notes, highlights, prefs, error, init, addNote, removeNote, setHighlight, setPrefs, getSetting, setSetting }
+  return { notes, highlights, prefs, error, loaded, init, addNote, removeNote, setHighlight, setPrefs, getSetting, setSetting }
 }

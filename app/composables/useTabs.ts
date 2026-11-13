@@ -39,12 +39,19 @@ export function tabTitle(path: string): { title: string; kind: 'read' | 'search'
 export function useTabs() {
   const tabs = useState<Tab[]>('tabs', () => [])
   const activeId = useState<string>('tabs-active', () => '')
-  /** False until restore() has run. Until then nothing is saved, so an early route change cannot overwrite the saved tabs. */
+  /** False until restore() has run. Until then the tabs are not tracked, so an early route change is ignored. */
   const restored = useState('tabs-restored', () => false)
-  const { getSetting, setSetting } = useUserData()
+  /**
+   * Whether the tabs may be written back. Only if the saved tabs were actually read: when user.db failed or was too
+   * slow to load, restore() starts from a default tab list, and saving that would overwrite the real one. The tabs
+   * still work for the session; they are just not saved. Decided once, in restore(), so a load that finishes late
+   * does not switch saving on for a tab list that never came from it.
+   */
+  const saving = useState('tabs-saving', () => false)
+  const { getSetting, setSetting, loaded } = useUserData()
 
   function persist() {
-    if (restored.value) void setSetting(TABS_SETTING, JSON.stringify({ tabs: tabs.value, activeId: activeId.value }))
+    if (restored.value && saving.value) void setSetting(TABS_SETTING, JSON.stringify({ tabs: tabs.value, activeId: activeId.value }))
   }
 
   /** Call once, after useUserData().init() has resolved: the saved tabs come from the settings it loaded. */
@@ -55,6 +62,7 @@ export function useTabs() {
       activeId.value = saved.activeId
     }
     restored.value = true
+    saving.value = loaded.value
     // Launching at the default route means the app had no path of its own, so go back to where the saved active tab was.
     // Replace, like the default redirect in pages/index.vue, so launching does not add a history entry.
     const active = tabs.value.find((t) => t.id === activeId.value)

@@ -231,6 +231,8 @@ Notes, highlights, open tabs and preferences live in `user.db`, a SQLite file in
 `app/composables/useUserData.ts` and `useTabs.ts`). Earlier builds kept them in the web view's `localStorage`; the
 first launch after updating copies them into `user.db` once and leaves the old copy in place. Only the light or dark
 theme choice still lives in `localStorage`. In the browser dev server, user data goes to `data/build/user.db` instead.
+That file is shared by every origin the dev server runs on, so only the first one to load it has its `localStorage`
+copied in: if Nuxt falls back from port 3000 to 3001, the second origin's old data is not migrated.
 
 ## What has been tested
 
@@ -239,10 +241,11 @@ Checked, with the commands that check it:
 - **Data build** from the real upstream files. `npm run data:check` runs 73 checks: database integrity,
   verse counts, Hebrew and English chapters ending on the same verse, search ranking, every query preparing, and
   spot checks on the lexicons, commentary and cross-references.
-- **59 Node unit tests** (`npm test`) covering the parsers and loaders, the dev server's query runners, and the
+- **61 Node unit tests** (`npm test`) covering the parsers and loaders, the dev server's query runners, and the
   conversions that move older `localStorage` data into `user.db`.
-- **16 Rust tests** (`cargo test --lib`, with `bible.db` built), including notes, highlights and settings round trips on `user.db`, a failed
-  batch leaving nothing behind, and translation-pack installs: wrong checksum, unsafe ids, a pack
+- **19 Rust tests** (`cargo test --lib`, with `bible.db` built), including notes, highlights and settings round trips on `user.db`, a failed
+  batch leaving nothing behind, the `user_query` and `user_batch` commands called through Tauri's mock IPC runtime
+  (with remote origins refused), and translation-pack installs: wrong checksum, unsafe ids, a pack
   holding another translation's verses, and URL rules. The Rust crate compiles on macOS.
 - **In a real browser** (the dev server): reading, switching between BSB, KJV, WEB and a downloaded translation,
   Word Study lexicon entries, Matthew Henry, cross-references, the dictionary, and installing and removing a
@@ -250,8 +253,8 @@ Checked, with the commands that check it:
   surviving a reload, older `localStorage` data being copied across on first run, and a failed save showing an error
   and keeping the unsaved note text.
 
-**Not verified:** saving notes and highlights inside the desktop window (the `user_query` and `user_batch` commands pass
-their Rust tests, but the path from the web view to them has not been exercised in a running Tauri app). Windows and Linux, narrow phone-width layouts, and accessibility with a screen reader. The packaged macOS desktop app is in early preview (v0.0.1) and has had little real-world testing. See [ACCESSIBILITY.md](ACCESSIBILITY.md) for the gaps found so far.
+**Not verified:** saving notes and highlights inside the desktop window. The `user_query` and `user_batch` commands are
+tested through Tauri's mock IPC runtime, but not in a running app with the real web view and capability files. Windows and Linux, narrow phone-width layouts, and accessibility with a screen reader. The packaged macOS desktop app is in early preview (v0.0.1) and has had little real-world testing. See [ACCESSIBILITY.md](ACCESSIBILITY.md) for the gaps found so far.
 
 ## Known limitations
 

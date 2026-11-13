@@ -24,6 +24,10 @@ ureq = "2"
 sha2 = "0.10"
 flate2 = "1"
 
+[dev-dependencies]
+# Mock runtime for the IPC tests in lib.rs (no window, no web view).
+tauri = { version = "2", features = ["test"] }
+
 [profile.release]
 lto = true
 codegen-units = 1
