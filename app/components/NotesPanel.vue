@@ -9,10 +9,14 @@ const draft = ref('')
 const chapterNotes = computed(() => notes.value.filter((n) => n.osis === props.osis && n.chapter === props.chapter).sort((a, b) => a.verse - b.verse || b.at - a.at))
 const currentColor = computed(() => (props.verse ? highlights.value[verseKey(props.osis, props.chapter, props.verse)] : undefined))
 
-function submit() {
-  if (!props.verse || !draft.value.trim()) return
-  addNote(props.osis, props.chapter, props.verse, draft.value)
-  draft.value = ''
+const saving = ref(false)
+
+async function submit() {
+  if (!props.verse || !draft.value.trim() || saving.value) return
+  saving.value = true
+  const saved = await addNote(props.osis, props.chapter, props.verse, draft.value)
+  saving.value = false
+  if (saved) draft.value = '' // a note that failed to save stays in the box
 }
 </script>
 
@@ -38,7 +42,7 @@ function submit() {
           class="w-full resize-none rounded-lg border border-line bg-bg px-3 py-2 text-base outline-none placeholder:text-faint md:text-sm focus:border-accent"
           @keydown.meta.enter.prevent="submit" @keydown.ctrl.enter.prevent="submit"
         />
-        <button type="submit" :disabled="!draft.trim()" class="mt-1.5 rounded-md bg-accent px-3 py-1 text-sm font-medium text-accent-fg disabled:opacity-40">Add note</button>
+        <button type="submit" :disabled="!draft.trim() || saving" class="mt-1.5 rounded-md bg-accent px-3 py-1 text-sm font-medium text-accent-fg disabled:opacity-40">Add note</button>
       </form>
     </div>
     <p v-else class="mb-3 text-sm text-muted">Select a verse to highlight it or add a note.</p>

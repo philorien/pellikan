@@ -121,7 +121,7 @@ npm install
 npm run data
 ```
 
-`npm run data` downloads the public-domain and openly licensed source texts into `data/sources/` (~100 MB), builds `data/build/bible.db` (~270 MB, bundling WEB, BSB and KJV), and runs 64 integrity checks. It prints a line per source so you can see what went in. If it finishes with `All checks passed`, the database is ready.
+`npm run data` downloads the public-domain and openly licensed source texts into `data/sources/` (~100 MB), builds `data/build/bible.db` (~270 MB, bundling WEB, BSB and KJV), and runs 73 integrity checks. It prints a line per source so you can see what went in. If it finishes with `All checks passed`, the database is ready.
 
 `bible.db` must exist before running either the browser dev server or the desktop window. If you supply your own licensed ESV EPUB, place it in `data/sources/` before running `npm run data` (see [DATA_SOURCES.md](DATA_SOURCES.md)).
 
@@ -220,32 +220,38 @@ for localhost). Details are in [DATA_SOURCES.md](DATA_SOURCES.md#optional-transl
 ```
 app/                   Nuxt UI: pages, components, composables
 shared/                Code shared by the data scripts and the UI: books, references, morphology, text
-data/queries/*.sql     Every query the app runs
+data/queries/*.sql     Every query the app runs (data/queries/user/ holds the ones for your own data)
 data/schema/           bible.sql (reference DB) and user.sql (user DB, idempotent)
 data/scripts/          fetch, build, build-packs, check, translations catalog, and loaders/ for each source
 server/                Dev-only API: queries and translation packs, for the browser dev server
 src-tauri/             Rust shell: opens the databases, runs queries, installs translation packs
 ```
 
-Notes, highlights, tabs and preferences currently live in the web view's `localStorage` (all behind
-`app/composables/useUserData.ts` and `useTabs.ts`). `user.db` has its schema but the Rust side has no write commands
-yet, so your notes are **not** in it. Clearing the app's web data clears them.
+Notes, highlights, open tabs and preferences live in `user.db`, a SQLite file in the app's data directory (all behind
+`app/composables/useUserData.ts` and `useTabs.ts`). Earlier builds kept them in the web view's `localStorage`; the
+first launch after updating copies them into `user.db` once and leaves the old copy in place. Only the light or dark
+theme choice still lives in `localStorage`. In the browser dev server, user data goes to `data/build/user.db` instead.
 
 ## What has been tested
 
 Checked, with the commands that check it:
 
-- **Data build** from the real upstream files. `npm run data:check` runs 64 checks: database integrity,
+- **Data build** from the real upstream files. `npm run data:check` runs 73 checks: database integrity,
   verse counts, Hebrew and English chapters ending on the same verse, search ranking, every query preparing, and
   spot checks on the lexicons, commentary and cross-references.
-- **30 Node unit tests** (`npm test`) covering the parsers and loaders.
-- **11 Rust tests** (`cargo test --lib`, with `bible.db` built), including translation-pack installs: wrong checksum, unsafe ids, a pack
+- **59 Node unit tests** (`npm test`) covering the parsers and loaders, the dev server's query runners, and the
+  conversions that move older `localStorage` data into `user.db`.
+- **16 Rust tests** (`cargo test --lib`, with `bible.db` built), including notes, highlights and settings round trips on `user.db`, a failed
+  batch leaving nothing behind, and translation-pack installs: wrong checksum, unsafe ids, a pack
   holding another translation's verses, and URL rules. The Rust crate compiles on macOS.
 - **In a real browser** (the dev server): reading, switching between BSB, KJV, WEB and a downloaded translation,
   Word Study lexicon entries, Matthew Henry, cross-references, the dictionary, and installing and removing a
-  translation pack from the real `packs` release.
+  translation pack from the real `packs` release. Also notes, highlights, text size and tabs saving to `user.db` and
+  surviving a reload, older `localStorage` data being copied across on first run, and a failed save showing an error
+  and keeping the unsaved note text.
 
-**Not verified:** Windows and Linux, narrow phone-width layouts, and accessibility with a screen reader. The packaged macOS desktop app is in early preview (v0.0.1) and has had little real-world testing. See [ACCESSIBILITY.md](ACCESSIBILITY.md) for the gaps found so far.
+**Not verified:** saving notes and highlights inside the desktop window (the `user_query` and `user_batch` commands pass
+their Rust tests, but the path from the web view to them has not been exercised in a running Tauri app). Windows and Linux, narrow phone-width layouts, and accessibility with a screen reader. The packaged macOS desktop app is in early preview (v0.0.1) and has had little real-world testing. See [ACCESSIBILITY.md](ACCESSIBILITY.md) for the gaps found so far.
 
 ## Known limitations
 
@@ -264,7 +270,8 @@ Measured details are in [DATA_SOURCES.md](DATA_SOURCES.md). The ones that matter
 The live roadmap, with status for each item, is the [Pellikan GitHub Project](https://github.com/users/philorien/projects/2). The list below is the long-range order.
 
 1. Refine the packaged desktop app on macOS, then add CI that runs the Node and Rust tests.
-2. Move notes, highlights and bookmarks into `user.db` (the schema is ready; it needs Rust write commands).
+2. Move notes, highlights and bookmarks into `user.db`. Notes, highlights, tabs and preferences are done; bookmarks
+   have a table but no UI yet.
 3. Import EPUB, PDF, DOCX and plain text into `user.db`, with Scripture references found and linked.
 4. AI-assisted search and questions with a bring-your-own key (Anthropic or Gemini), keys in the OS keychain and never
    in a database. Every answer carries a plain notice: AI can summarize and cross-reference text, but it cannot

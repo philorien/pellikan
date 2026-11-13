@@ -14,7 +14,7 @@ SQLite with FTS5. Reference text lives in a read-only `bible.db`; user data goes
 ```bash
 npm install
 npm run data          # fetch sources, build data/build/bible.db, run checks (needs network, ~41 MB)
-npm run dev           # browser at localhost:3000, queries served by server/api/query/[name].post.ts
+npm run dev           # browser at localhost:3000, queries served by server/api/query/ and server/api/user/
 npm run tauri:dev     # desktop app (needs Rust and Xcode CLT on macOS)
 npm test              # node:test unit tests for data loaders and shared/
 npm run data:check    # database integrity checks
@@ -30,13 +30,15 @@ before the UI shows anything; build it with `npm run data`.
 - `app/` Nuxt UI. `pages/` (read/[book]/[chapter], search, notes, highlights, library, credits), `components/`,
   `composables/` (`useBible`, `useTabs`, `useTheme`, `useUserData`), `utils/types.ts`.
 - `shared/` TypeScript used by both the UI and the data scripts: books, reference parsing, morphology decoding, text.
-- `data/queries/*.sql` every query the app runs. **Single source of truth** for Rust and the dev server.
+- `data/queries/*.sql` every query the app runs on `bible.db`, and `data/queries/user/*.sql` every statement it runs
+  on `user.db` (reads and writes). **Single source of truth** for Rust and the dev server.
 - `data/schema/` `bible.sql` (reference DB) and `user.sql` (user DB, idempotent).
 - `data/scripts/` fetch, build, check, `translations.mjs` (translation catalog), and `loaders/`: USFM (WEB, BSB, KJV),
   OSHB, MorphGNT, optional ESV epub, `sword.mjs` (CrossWire module reader), `lexicon`, `dictionary`, `commentary`,
   `crossrefs`, `markup`.
-- `server/` dev-only API routes (`/api/query/*`, `/api/translations/*`) and DB/pack helpers.
-- `src-tauri/src/` `db.rs`, `lib.rs`, `main.rs`: opens both DBs, exposes a `query` command.
+- `server/` dev-only API routes (`/api/query/*`, `/api/user/*`, `/api/translations/*`) and DB/pack helpers.
+- `src-tauri/src/` `db.rs`, `lib.rs`, `main.rs`: opens both DBs, exposes `query` (bible.db, read-only) and
+  `user_query` / `user_batch` (user.db).
 - `.agents/skills/` design skills (Impeccable). Not app code.
 
 ## Conventions and invariants
@@ -45,9 +47,17 @@ before the UI shows anything; build it with `npm run data`.
   add the file and make sure `data:check` prepares it. Keep parameters named and validate the name against the
   allowlist, never build paths from raw input.
 - **Two databases, never mixed.** Do not write to `bible.db`. User data (notes, highlights, bookmarks, imports,
-  settings) belongs in `user.db`.
-- **Current reality:** notes, highlights, tabs and prefs are in `localStorage` via `useUserData.ts` and `useTabs.ts`,
-  because Rust has no write commands yet. Keep all access behind those composables so migrating is a one-file change.
+  settings) belongs in `user.db`. The two query lists are separate (`QUERIES` and `USER_QUERIES` in `db.rs`): a user
+  statement cannot run on `bible.db` or the reverse.
+- **User data goes through `useUserData.ts`.** Notes, highlights, preferences and the open tabs are in `user.db`,
+  written with the named statements in `data/queries/user/` via `userQuery` / `userBatch` (`useBible.ts`). Components
+  call the composables (`useUserData.ts`, `useTabs.ts`), never `userQuery` directly. Use `userBatch` when several rows
+  must land together. Notes and highlights are written before the screen shows them; a failed save sets `error`
+  (shown by `app.vue`) and must never look saved. The first run copies old `localStorage` data across once
+  (`legacyOps`). Only the theme stays in `localStorage`, because it is read before first paint. Bookmarks have a
+  table but no statements or UI yet.
+- **The dev server keeps its own `user.db`** at `data/build/user.db` (`PELLIKAN_USER_DB` overrides it), mirrored in
+  `server/utils/userDb.ts`. Keep it in step with `db.rs`, like the packs twin.
 - **Canonical verse numbering** is English (KJV) with OSIS book ids. The KJV is the reference versification; every
   bundled translation is checked against it in `build-db.mjs`. A text that numbers verses differently needs a mapping
   table first (see DATA_SOURCES.md). Decide this before adding sources, not after.

@@ -22,6 +22,35 @@ export async function query<T = Record<string, unknown>>(name: string, params: P
   return await $fetch<T[]>(`/api/query/${name}`, { method: 'POST', body: params })
 }
 
+// Calls to user.db run one at a time, in the order they were made. Two quick saves of the same setting (the open
+// tabs, say) must not land out of order and leave the older value on disk.
+let userQueue: Promise<unknown> = Promise.resolve()
+function inOrder<T>(run: () => Promise<T>): Promise<T> {
+  const next = userQueue.then(run, run)
+  userQueue = next.catch(() => {})
+  return next
+}
+
+/**
+ * Runs a named statement from data/queries/user/ against user.db, the only database the app writes to. Rust in the
+ * desktop app, the Nitro dev route in a plain browser. Writes return no rows unless the SQL has a RETURNING clause.
+ * Call this from useUserData.ts, not from components.
+ */
+export function userQuery<T = Record<string, unknown>>(name: string, params: Params = {}): Promise<T[]> {
+  return inOrder(async () => {
+    if (await inTauri()) return (await invokeFn!('user_query', { name, params })) as T[]
+    return await $fetch<T[]>(`/api/user/query/${name}`, { method: 'POST', body: params })
+  })
+}
+
+/** Runs several user.db statements in one transaction: all of them apply, or none do. */
+export function userBatch(ops: Array<{ name: string; params: Params }>): Promise<void> {
+  return inOrder(async () => {
+    if (await inTauri()) await invokeFn!('user_batch', { ops })
+    else await $fetch('/api/user/batch', { method: 'POST', body: { ops } })
+  })
+}
+
 export function useBooks() {
   return { BOOKS, BOOK_BY_OSIS }
 }

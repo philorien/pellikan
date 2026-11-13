@@ -13,8 +13,7 @@ use packs::ManifestEntry;
 /// SQLite connections are not `Sync`, so each lives behind a Mutex. Queries are short; contention is not a concern.
 struct AppState {
     bible: Mutex<Connection>,
-    /// The user's own data (notes, highlights, imported books). Opened and migrated now; used by upcoming features.
-    #[allow(dead_code)]
+    /// The user's own data (notes, highlights, settings; imported books later). The only database the app writes to.
     user: Mutex<Connection>,
     /// Downloaded translations, one read-only connection per pack. See packs.rs.
     packs: Mutex<HashMap<String, Connection>>,
@@ -35,6 +34,20 @@ fn query(state: State<'_, AppState>, name: String, params: Option<Map<String, Va
     }
     let conn = state.bible.lock().map_err(|_| "database lock poisoned".to_string())?;
     db::run_named(&conn, &name, &params)
+}
+
+/// One named statement from data/queries/user/ against user.db. This is the only way the UI writes anything.
+#[tauri::command]
+fn user_query(state: State<'_, AppState>, name: String, params: Option<Map<String, Value>>) -> Result<Vec<Value>, String> {
+    let conn = state.user.lock().map_err(|_| "database lock poisoned".to_string())?;
+    db::run_user(&conn, &name, &params.unwrap_or_default())
+}
+
+/// Several named statements against user.db in one transaction, so a multi-row change cannot half apply.
+#[tauri::command]
+fn user_batch(state: State<'_, AppState>, ops: Vec<db::Op>) -> Result<(), String> {
+    let mut conn = state.user.lock().map_err(|_| "database lock poisoned".to_string())?;
+    db::run_user_batch(&mut conn, &ops)
 }
 
 /// The translations on offer: the catalog from the manifest, whether or not each is installed.
@@ -104,9 +117,7 @@ fn open_user_db(app: &tauri::App) -> Result<Connection, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create {dir:?}: {e}"))?;
     let conn = Connection::open(dir.join("user.db")).map_err(|e| e.to_string())?;
-    conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;").map_err(|e| e.to_string())?;
-    // Idempotent: safe to run on every launch (see data/schema/user.sql).
-    conn.execute_batch(include_str!("../../data/schema/user.sql")).map_err(|e| format!("user.db schema: {e}"))?;
+    db::init_user(&conn)?;
     Ok(conn)
 }
 
@@ -123,7 +134,7 @@ pub fn run() {
             app.manage(AppState { bible: Mutex::new(bible), user: Mutex::new(user), packs: Mutex::new(installed), packs_dir });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![query, translation_catalog, installed_translations, install_translation, remove_translation])
+        .invoke_handler(tauri::generate_handler![query, user_query, user_batch, translation_catalog, installed_translations, install_translation, remove_translation])
         .run(tauri::generate_context!())
         .expect("error while running Pellikan");
 }
