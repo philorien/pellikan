@@ -50,9 +50,8 @@ ASV, YLT and Darby are not in `bible.db`. `data/scripts/translations.mjs` lists 
 3. **You publish that folder to a public HTTPS location.** The app reads the manifest from
    `https://github.com/philorien/pellikan/releases/download/packs/manifest.json` by default, or from the
    `PELLIKAN_PACKS_URL` environment variable (at build time or run time; plain `http` is accepted only for localhost).
-   **That default URL does not work today:** nothing is published there, and release assets of a private repository
-   cannot be downloaded without credentials. Make the repo public, publish the packs from a public repo, or host them
-   elsewhere, then set the URL.
+   The repository is public and the `packs` release holds the manifest and the three packs, so the default URL works.
+   After rebuilding packs, upload the manifest and the packs together (see CONTRIBUTING.md).
 4. The app downloads a pack only from the manifest's host, never from ebible.org. It checks the SHA-256, unpacks to a
    temporary file, validates it (integrity check, exactly one translation, the right id), and renames it into
    `<app data>/translations/<ID>.db`. A failed install leaves nothing behind. Removing a translation deletes its file.

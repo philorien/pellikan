@@ -8,6 +8,7 @@
 [![Latest release](https://img.shields.io/github/v/release/philorien/pellikan?include_prereleases&label=release)](https://github.com/philorien/pellikan/releases)
 [![Open issues](https://img.shields.io/github/issues/philorien/pellikan)](https://github.com/philorien/pellikan/issues)
 [![Open pull requests](https://img.shields.io/github/issues-pr/philorien/pellikan)](https://github.com/philorien/pellikan/pulls)
+[![CI](https://img.shields.io/github/actions/workflow/status/philorien/pellikan/ci.yml?branch=main&label=CI)](https://github.com/philorien/pellikan/actions/workflows/ci.yml)
 [![Last commit](https://img.shields.io/github/last-commit/philorien/pellikan)](https://github.com/philorien/pellikan/commits/main)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](CONTRIBUTING.md)
 [![Good first issues](https://img.shields.io/github/issues/philorien/pellikan/good%20first%20issue?label=good%20first%20issues&color=7057ff)](https://github.com/philorien/pellikan/labels/good%20first%20issue)
@@ -106,7 +107,7 @@ To develop Pellikan, run it in a browser, use an Intel Mac, or run on Linux and 
 | **Rust** (stable)                    | Only for running or building the desktop window                                                         | `rustc -V`               |
 | **Xcode Command Line Tools** (macOS) | Linker and the system web view (only for desktop / Rust)                                                | `xcode-select --install` |
 | **Disk space**                       | ~700 MB for browser mode; ~4 GB total if compiling the desktop app (Rust build cache)                   |                          |
-| **Network, once**                    | The initial data build downloads the source texts (~100 MB)                                             |                          |
+| **Network, once**                    | The initial data build downloads the source texts (~110 MB)                                             |                          |
 
 Install Rust with `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`. If you just installed it, ensure Cargo is in your `PATH` by running `source "$HOME/.cargo/env"` or restarting your terminal.
 
@@ -124,7 +125,7 @@ npm install
 npm run data
 ```
 
-`npm run data` downloads the public-domain and openly licensed source texts into `data/sources/` (~100 MB), builds `data/build/bible.db` (~270 MB, bundling WEB, BSB and KJV), and runs 85 integrity checks. It prints a line per source so you can see what went in. If it finishes with `All checks passed`, the database is ready.
+`npm run data` downloads the public-domain and openly licensed source texts into `data/sources/` (~110 MB), builds `data/build/bible.db` (~280 MB, bundling WEB, BSB and KJV), and runs 85 integrity checks. It prints a line per source so you can see what went in. If it finishes with `All checks passed`, the database is ready.
 
 `bible.db` must exist before running either the browser dev server or the desktop window. If you supply your own licensed ESV EPUB, place it in `data/sources/` before running `npm run data` (see [DATA_SOURCES.md](DATA_SOURCES.md)).
 
@@ -179,7 +180,7 @@ The installer is placed in `src-tauri/target/release/bundle/dmg/` (or `.app` in 
 Open **Library**, find **Bible translations**, and press **Download** next to ASV, YLT or Darby. The app fetches the
 list from this repository's `packs` release, downloads the pack, verifies its SHA-256 checksum, and installs it:
 
-- In the desktop app, packs are saved to your app data folder (`~/Library/Application Support/com.lorienweb.pellikan/packs/` on macOS).
+- In the desktop app, packs are saved to the `translations/` folder inside your app data folder (`~/Library/Application Support/com.lorienweb.pellikan/translations/` on macOS).
 - In the browser dev server (`npm run dev`), packs are saved to `data/build/installed/`.
 
 **Remove** deletes that file. If you are offline, the page says so and everything you already have keeps working.
@@ -222,7 +223,7 @@ for localhost). Details are in [DATA_SOURCES.md](DATA_SOURCES.md#optional-transl
 
 ```
 app/                   Nuxt UI: pages, components, composables
-shared/                Code shared by the data scripts and the UI: books, references, morphology, text
+shared/                Code shared by the data scripts and the UI: books, references, reference scanning, book import, morphology, text
 data/queries/*.sql     Every query the app runs (data/queries/user/ holds the ones for your own data)
 data/schema/           bible.sql (reference DB) and user.sql (user DB, idempotent)
 data/scripts/          fetch, build, build-packs, check, translations catalog, and loaders/ for each source
@@ -230,7 +231,7 @@ server/                Dev-only API: queries and translation packs, for the brow
 src-tauri/             Rust shell: opens the databases, runs queries, installs translation packs
 ```
 
-Notes, highlights, open tabs and preferences live in `user.db`, a SQLite file in the app's data directory (all behind
+Notes, highlights, open tabs, preferences and imported books live in `user.db`, a SQLite file in the app's data directory (all behind
 `app/composables/useUserData.ts` and `useTabs.ts`). Earlier builds kept them in the web view's `localStorage`; the
 first launch after updating copies them into `user.db` once and leaves the old copy in place. Only the light or dark
 theme choice still lives in `localStorage`. In the browser dev server, user data goes to `data/build/user.db` instead.
@@ -241,6 +242,9 @@ copied in: if Nuxt falls back from port 3000 to 3001, the second origin's old da
 
 Checked, with the commands that check it:
 
+- **Continuous integration** (`.github/workflows/ci.yml`) runs `npm test`, the static build, a release data build,
+  `npm run data:check` and `cargo test --lib` on Linux for every pull request and every push to `main`. It does not
+  run macOS, the desktop window or any UI.
 - **Data build** from the real upstream files. `npm run data:check` runs 85 checks: database integrity,
   verse counts, Hebrew and English chapters ending on the same verse, search ranking, every query preparing, and
   spot checks on the lexicons, commentary and cross-references.
@@ -278,7 +282,7 @@ Measured details are in [DATA_SOURCES.md](DATA_SOURCES.md). The ones that matter
 
 The live roadmap, with status for each item, is the [Pellikan GitHub Project](https://github.com/users/philorien/projects/2). The list below is the long-range order.
 
-1. Refine the packaged desktop app on macOS, then add CI that runs the Node and Rust tests.
+1. Refine the packaged desktop app on macOS. CI already runs the Node and Rust tests (Linux only).
 2. Move notes, highlights and bookmarks into `user.db`. Notes, highlights, tabs and preferences are done; bookmarks
    have a table but no UI yet.
 3. Import your own books into `user.db`, with Scripture references found and linked. Plain text and Markdown import

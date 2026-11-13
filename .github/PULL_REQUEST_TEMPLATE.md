@@ -45,7 +45,8 @@ See [ACCESSIBILITY.md](../ACCESSIBILITY.md) for the known gaps; do not make them
 
 - [ ] New query files are registered in `src-tauri/src/db.rs` (`data:check` fails if not)
 - [ ] The UI still sends a query **name** and parameters, never SQL
-- [ ] Schema changes bump the version in `bible.sql`, `build-db.mjs` and `check-db.mjs` together
+- [ ] `bible.db` schema changes bump the version in `bible.sql`, `build-db.mjs` and `check-db.mjs` together
+- [ ] `user.db` schema changes bump the version in `user.sql`, add `data/schema/migrations/user-N.sql`, and upgrade both `migrate_user` (`db.rs`) and `migrateUser` (`userDb.ts`), with tests
 - [ ] Changes to translation-pack handling are made in both `src-tauri/src/packs.rs` and `server/utils/packs.ts`
 
 ## Docs

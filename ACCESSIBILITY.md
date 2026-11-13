@@ -92,7 +92,7 @@ These were found by reading the code and measuring. Items struck through have be
 7. ~~**Small targets.**~~ Tab close buttons and highlight swatches are now 24 px; the 44 px touch size is still not met. Original note: some controls were 20 px square (the close button on each tab, the highlight color swatches), under
    the 24 px minimum in WCAG 2.2 criterion 2.5.8 and well under the usual 44 px for touch.
 8. **Few live regions.** Searches, chapter loads, installs and the Word Study results update the page without telling a
-   screen reader. Only one place uses `role="status"`. Add polite live regions for result counts and completion.
+   screen reader. Only one place uses `role="status"`, and the book import progress uses `aria-live`. Add polite live regions for result counts and completion.
 9. ~~**Language is not marked everywhere.**~~ Fixed: original-language words carry `lang="grc"` or `lang="he"`. Original note: The Greek and Hebrew words in the original-language panel do not carry `lang`
    attributes (the lexicon headwords do). Without them a screen reader may read Greek with an English voice.
 10. ~~**The reader has no `h1`.**~~ Fixed with a screen-reader-only `h1` (book and chapter). Original note: Every other page has one, but in the normal reading view the heading is missing (the
