@@ -121,7 +121,7 @@ npm install
 npm run data
 ```
 
-`npm run data` downloads the public-domain and openly licensed source texts into `data/sources/` (~100 MB), builds `data/build/bible.db` (~270 MB, bundling WEB, BSB and KJV), and runs 73 integrity checks. It prints a line per source so you can see what went in. If it finishes with `All checks passed`, the database is ready.
+`npm run data` downloads the public-domain and openly licensed source texts into `data/sources/` (~100 MB), builds `data/build/bible.db` (~270 MB, bundling WEB, BSB and KJV), and runs 76 integrity checks. It prints a line per source so you can see what went in. If it finishes with `All checks passed`, the database is ready.
 
 `bible.db` must exist before running either the browser dev server or the desktop window. If you supply your own licensed ESV EPUB, place it in `data/sources/` before running `npm run data` (see [DATA_SOURCES.md](DATA_SOURCES.md)).
 
@@ -238,10 +238,11 @@ copied in: if Nuxt falls back from port 3000 to 3001, the second origin's old da
 
 Checked, with the commands that check it:
 
-- **Data build** from the real upstream files. `npm run data:check` runs 73 checks: database integrity,
+- **Data build** from the real upstream files. `npm run data:check` runs 76 checks: database integrity,
   verse counts, Hebrew and English chapters ending on the same verse, search ranking, every query preparing, and
   spot checks on the lexicons, commentary and cross-references.
-- **61 Node unit tests** (`npm test`) covering the parsers and loaders, the dev server's query runners, and the
+- **80 Node unit tests** (`npm test`) covering the parsers and loaders, the Scripture reference scanner (not yet used
+  by any screen; it is groundwork for importing your own books), the dev server's query runners, and the
   conversions that move older `localStorage` data into `user.db`.
 - **19 Rust tests** (`cargo test --lib`, with `bible.db` built), including notes, highlights and settings round trips on `user.db`, a failed
   batch leaving nothing behind, the `user_query` and `user_batch` commands called through Tauri's mock IPC runtime
