@@ -12,7 +12,7 @@ useHead({ title: 'Library · Pellikan' })
   <div class="h-full overflow-y-auto p-2 md:p-4">
     <div class="mx-auto max-w-3xl rounded-xl border border-line bg-surface px-4 py-5 md:px-6 md:py-6">
       <h1 class="font-reading text-3xl font-semibold">Library</h1>
-      <p class="mt-2 text-muted">What is installed. Imported books will show up here once that feature exists. Dictionaries open in the <NuxtLink to="/dictionary" class="text-accent hover:underline">Dictionary</NuxtLink>; lexicons appear in Word Study, commentary beside the text.</p>
+      <p class="mt-2 text-muted">What is installed, and the books you have imported. Dictionaries open in the <NuxtLink to="/dictionary" class="text-accent hover:underline">Dictionary</NuxtLink>; lexicons appear in Word Study, commentary beside the text.</p>
       <p v-if="error" class="mt-6 text-red-500">Could not load the library: {{ error.statusMessage || error.message }}</p>
       <ul v-else class="mt-6 grid gap-3 sm:grid-cols-2">
         <li v-for="s in sources" :key="s.id" class="rounded-lg border border-line bg-bg p-4">
@@ -22,6 +22,7 @@ useHead({ title: 'Library · Pellikan' })
         </li>
       </ul>
       <TranslationManager />
+      <ImportedBooks />
       <NuxtLink to="/credits" class="mt-8 inline-block text-sm text-accent hover:underline">Full credits and licenses</NuxtLink>
     </div>
   </div>

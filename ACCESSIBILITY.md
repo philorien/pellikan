@@ -44,6 +44,10 @@ Treat everything under "In place" as "present in the code", not "confirmed to wo
   English voice for the UI. Downloadable Bible packs that are not English should set `lang` on their verse containers
   when that language is known.
 - **Print.** Chrome is hidden and the chapter flows across pages.
+- **Importing books (Library page).** The file input is a real, visually hidden `<input type="file">` with a label that shows a
+  focus outline when it is focused. Progress and results are in an `aria-live="polite"` region, errors use
+  `role="alert"`, the progress bar has an accessible name, and removing a book asks for confirmation in text (no browser
+  dialog). Present in the code, not tested with a screen reader or on a phone-width screen.
 - **Offline and failure states are text.** Failed loads and an unreachable translation catalog show a plain message
   instead of an empty area.
 

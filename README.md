@@ -66,9 +66,12 @@ The biography above is summarized from the linked Wikipedia article, which marks
 - **Study guide, notes and highlights.** Section headings, footnotes and cross-references for the chapter; notes and
   four highlight colors per verse, with overview pages.
 - **Full-text search** across the selected translation.
+- **Your own books, as plain text or Markdown.** Import a `.txt` or `.md` file on the Library page. Pellikan splits it
+  into passages and finds the Scripture references in it ("Rom. 8:28", "1 Cor 13:4, 7", "Rom. viii. 28"). Files are
+  read on your computer and the text is stored in `user.db`; the original file is not kept.
 
-Not built yet: importing your own books (EPUB, PDF, DOCX), AI-assisted search, signed installers. See the
-[roadmap](#roadmap).
+Not built yet: showing your books beside the verses they cite, searching them, importing EPUB, PDF and DOCX,
+AI-assisted search, signed installers. See the [roadmap](#roadmap).
 
 ## Install from GitHub
 
@@ -121,7 +124,7 @@ npm install
 npm run data
 ```
 
-`npm run data` downloads the public-domain and openly licensed source texts into `data/sources/` (~100 MB), builds `data/build/bible.db` (~270 MB, bundling WEB, BSB and KJV), and runs 76 integrity checks. It prints a line per source so you can see what went in. If it finishes with `All checks passed`, the database is ready.
+`npm run data` downloads the public-domain and openly licensed source texts into `data/sources/` (~100 MB), builds `data/build/bible.db` (~270 MB, bundling WEB, BSB and KJV), and runs 85 integrity checks. It prints a line per source so you can see what went in. If it finishes with `All checks passed`, the database is ready.
 
 `bible.db` must exist before running either the browser dev server or the desktop window. If you supply your own licensed ESV EPUB, place it in `data/sources/` before running `npm run data` (see [DATA_SOURCES.md](DATA_SOURCES.md)).
 
@@ -238,13 +241,15 @@ copied in: if Nuxt falls back from port 3000 to 3001, the second origin's old da
 
 Checked, with the commands that check it:
 
-- **Data build** from the real upstream files. `npm run data:check` runs 76 checks: database integrity,
+- **Data build** from the real upstream files. `npm run data:check` runs 85 checks: database integrity,
   verse counts, Hebrew and English chapters ending on the same verse, search ranking, every query preparing, and
   spot checks on the lexicons, commentary and cross-references.
-- **80 Node unit tests** (`npm test`) covering the parsers and loaders, the Scripture reference scanner (not yet used
-  by any screen; it is groundwork for importing your own books), the dev server's query runners, and the
+- **122 Node unit tests** (`npm test`) covering the parsers and loaders, the Scripture reference scanner, text and
+  Markdown import (extraction, chunking, and the import flow including a failed save removing the half-imported book),
+  the dev server's query runners, and the
   conversions that move older `localStorage` data into `user.db`.
-- **19 Rust tests** (`cargo test --lib`, with `bible.db` built), including notes, highlights and settings round trips on `user.db`, a failed
+- **23 Rust tests** (`cargo test --lib`, with `bible.db` built), including notes, highlights and settings round trips on `user.db`, the
+  `user.db` schema 1 to 2 upgrade (and its refusal to run over a document), importing, searching and removing a book, a failed
   batch leaving nothing behind, the `user_query` and `user_batch` commands called through Tauri's mock IPC runtime
   (with remote origins refused), and translation-pack installs: wrong checksum, unsafe ids, a pack
   holding another translation's verses, and URL rules. The Rust crate compiles on macOS.
@@ -276,7 +281,8 @@ The live roadmap, with status for each item, is the [Pellikan GitHub Project](ht
 1. Refine the packaged desktop app on macOS, then add CI that runs the Node and Rust tests.
 2. Move notes, highlights and bookmarks into `user.db`. Notes, highlights, tabs and preferences are done; bookmarks
    have a table but no UI yet.
-3. Import EPUB, PDF, DOCX and plain text into `user.db`, with Scripture references found and linked.
+3. Import your own books into `user.db`, with Scripture references found and linked. Plain text and Markdown import
+   works; next is showing the passages that cite the verse you are reading, then search, then EPUB, DOCX and PDF.
 4. AI-assisted search and questions with a bring-your-own key (Anthropic or Gemini), keys in the OS keychain and never
    in a database. Every answer carries a plain notice: AI can summarize and cross-reference text, but it cannot
    discern what the Spirit is saying. It is a concordance with a mouth, not a teacher.

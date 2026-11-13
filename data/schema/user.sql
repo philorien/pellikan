@@ -4,13 +4,13 @@
 -- Not stored here on purpose: AI provider API keys. Those belong in the OS keychain
 -- (macOS Keychain / Windows Credential Manager / Secret Service), never in a database file.
 --
--- Schema version: 1
+-- Schema version: 2 (see data/schema/migrations/ for how an older file is brought forward)
 
 CREATE TABLE IF NOT EXISTS schema_info (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 ) WITHOUT ROWID;
-INSERT OR IGNORE INTO schema_info (key, value) VALUES ('schema_version', '1');
+INSERT OR IGNORE INTO schema_info (key, value) VALUES ('schema_version', '2');
 
 CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS bookmarks (
 );
 
 -- ---------------------------------------------------------------------------------------------
--- Imported library: epub, pdf, docx, txt, md, html
+-- Imported library. Formats the schema allows: epub, pdf, docx, txt, md, html. The app imports txt and md so far.
 -- ---------------------------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS documents (
@@ -61,8 +61,8 @@ CREATE TABLE IF NOT EXISTS documents (
   author          TEXT,
   format          TEXT NOT NULL CHECK (format IN ('epub', 'pdf', 'docx', 'txt', 'md', 'html')),
   original_name   TEXT NOT NULL,
-  sha256          TEXT NOT NULL UNIQUE,         -- importing the same file twice is a no-op
-  stored_path     TEXT NOT NULL,                -- the app keeps its own copy in the library folder
+  sha256          TEXT NOT NULL UNIQUE,         -- of the file's bytes: importing the same file twice is a no-op
+  stored_path     TEXT,                         -- NULL: the original file is not kept, only the extracted text
   status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'ready', 'failed')),
   error           TEXT,                         -- shown to the user when extraction fails (e.g. scanned PDF, no text layer)
   extracted_chars INTEGER,
@@ -100,14 +100,17 @@ CREATE TRIGGER IF NOT EXISTS doc_chunks_au AFTER UPDATE ON doc_chunks BEGIN
   INSERT INTO doc_chunks_fts (rowid, text, heading) VALUES (new.id, new.text, new.heading);
 END;
 
--- Scripture references detected inside imported documents (see shared/reference.ts).
+-- Scripture references detected inside imported documents (see shared/reference-scan.ts).
 -- This is what lets the reader show "passages in your library that cite Romans 8:28".
+-- One row per chapter: "Gen 1:1-2:3" is stored as Gen 1:1-31 and Gen 2:1-3. `confidence` is the scanner's: 'high' for a
+-- written chapter and verse, 'medium' for a chapter alone and for "v. 5" resolved from context.
 CREATE TABLE IF NOT EXISTS doc_refs (
   chunk_id    INTEGER NOT NULL REFERENCES doc_chunks (id) ON DELETE CASCADE,
   book_id     INTEGER NOT NULL,
   chapter     INTEGER NOT NULL,
   verse_start INTEGER NOT NULL,
   verse_end   INTEGER NOT NULL,
+  confidence  TEXT    NOT NULL DEFAULT 'high' CHECK (confidence IN ('high', 'medium')),
   PRIMARY KEY (chunk_id, book_id, chapter, verse_start, verse_end)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS doc_refs_ref ON doc_refs (book_id, chapter, verse_start);

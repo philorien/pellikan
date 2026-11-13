@@ -77,6 +77,12 @@ The rules that hold it together:
   `server/utils/userDb.ts` in the dev server, which keeps its own `data/build/user.db`). Components never call those
   directly. Only the theme stays in `localStorage`.
 
+## Your own books
+
+Books a user imports are theirs: they go in `user.db` on that computer and are never part of `bible.db`, a translation
+pack, a release, or this repository. Do not commit a sample book you do not have the right to share. The tests build
+their text in code.
+
 ## Data and licensing
 
 Every source is recorded in two places that must agree: `DATA_SOURCES.md` (the human record, including known problems)
