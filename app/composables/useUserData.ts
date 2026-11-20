@@ -13,6 +13,7 @@
 import { BOOK_BY_ID, BOOK_BY_OSIS } from '../../shared/books.ts'
 
 export interface UserNote { id: number; osis: string; chapter: number; verse: number; body: string; at: number }
+export interface UserBookmark { id: number; osis: string; chapter: number; verse: number; label: string | null; at: number }
 export type HighlightColor = 'yellow' | 'green' | 'blue' | 'rose'
 export const HIGHLIGHT_COLORS: HighlightColor[] = ['yellow', 'green', 'blue', 'rose']
 
@@ -40,6 +41,22 @@ const isColor = (c: unknown): c is HighlightColor => HIGHLIGHT_COLORS.includes(c
 
 export interface NoteRow { id: number; book_id: number; chapter: number; verse: number; body: string; at: number }
 export interface HighlightRow { book_id: number; chapter: number; verse: number; color: string }
+export interface BookmarkRow { id: number; book_id: number; chapter: number; verse: number; label: string | null; at: number }
+
+/** Longest bookmark label kept. */
+export const BOOKMARK_LABEL_MAX = 120
+
+/** A label as stored: trimmed and capped, and null when there is nothing left. */
+export function cleanLabel(label: string | null | undefined): string | null {
+  const text = (label ?? '').trim().slice(0, BOOKMARK_LABEL_MAX)
+  return text || null
+}
+
+/** A row from bookmarks_all as the UI's bookmark, or null if its book id is not one of the 66. */
+export function bookmarkFromRow(row: BookmarkRow): UserBookmark | null {
+  const book = BOOK_BY_ID[row.book_id]
+  return book ? { id: row.id, osis: book.osis, chapter: row.chapter, verse: row.verse, label: row.label, at: row.at } : null
+}
 
 /** A row from notes_all as the UI's note, or null if its book id is not one of the 66. */
 export function noteFromRow(row: NoteRow): UserNote | null {
@@ -131,6 +148,7 @@ export const LOAD_TIMEOUT_MS = 5000
 export function useUserData() {
   const notes = useState<UserNote[]>('user-notes', () => [])
   const highlights = useState<Record<string, HighlightColor>>('user-highlights', () => ({}))
+  const bookmarks = useState<UserBookmark[]>('user-bookmarks', () => [])
   const prefs = useState<Prefs>('user-prefs', () => ({ ...DEFAULT_PREFS }))
   const settings = useState<Record<string, string>>('user-settings', () => ({}))
   const loaded = useState('user-data-loaded', () => false)
@@ -151,10 +169,11 @@ export function useUserData() {
       prefs.value = prefsFromSettings(settings.value)
       notes.value = (await userQuery<NoteRow>('notes_all')).map(noteFromRow).filter((n) => n !== null)
       highlights.value = highlightsFromRows(await userQuery<HighlightRow>('highlights_all'))
+      bookmarks.value = (await userQuery<BookmarkRow>('bookmarks_all')).map(bookmarkFromRow).filter((b) => b !== null)
       loaded.value = true
       error.value = null
     } catch (err) {
-      error.value = `Your notes, highlights and settings could not be loaded: ${errorMessage(err)}`
+      error.value = `Your notes, highlights, bookmarks and settings could not be loaded: ${errorMessage(err)}`
     }
   }
 
@@ -169,7 +188,7 @@ export function useUserData() {
     let timer: ReturnType<typeof setTimeout> | undefined
     const timeout = new Promise<void>((resolve) => {
       timer = setTimeout(() => {
-        if (!loaded.value && !error.value) error.value = 'Your notes, highlights and settings are taking too long to load. Changes you make now may not be saved.'
+        if (!loaded.value && !error.value) error.value = 'Your notes, highlights, bookmarks and settings are taking too long to load. Changes you make now may not be saved.'
         resolve()
       }, timeoutMs)
     })
@@ -216,6 +235,34 @@ export function useUserData() {
     } catch (err) { failed(err) }
   }
 
+  /**
+   * Bookmarks a verse, or changes the label of one that is already bookmarked. Resolves true once it is saved. A
+   * bookmark on a whole chapter is a bookmark on verse 1.
+   */
+  async function setBookmark(osis: string, chapter: number, verse: number, label: string | null = null): Promise<boolean> {
+    const book = BOOK_BY_OSIS[osis]
+    if (!book || !isPositive(chapter) || !isPositive(verse)) return false
+    const text = cleanLabel(label)
+    try {
+      const [row] = await userQuery<{ id: number; at: number }>('bookmark_set', { book: book.id, chapter, verse, label: text })
+      const saved: UserBookmark = { id: row!.id, osis, chapter, verse, label: text, at: row!.at }
+      // A relabel keeps the bookmark's place: the list is newest first by creation date, and a relabel does not change it
+      // (bookmark_set keeps created_at). Only a new bookmark goes to the front.
+      const exists = bookmarks.value.some((b) => b.id === saved.id)
+      bookmarks.value = exists ? bookmarks.value.map((b) => (b.id === saved.id ? saved : b)) : [saved, ...bookmarks.value]
+      return true
+    } catch (err) {
+      failed(err)
+      return false
+    }
+  }
+  async function removeBookmark(id: number) {
+    try {
+      await userQuery('bookmark_remove', { id })
+      bookmarks.value = bookmarks.value.filter((b) => b.id !== id)
+    } catch (err) { failed(err) }
+  }
+
   // Settings are shown first and written behind: text size should follow the click, and a lost setting is cheap.
 
   const getSetting = (key: string): string | null => settings.value[key] ?? null
@@ -228,5 +275,5 @@ export function useUserData() {
     for (const [key, value] of Object.entries(patch)) void setSetting(PREF + key, JSON.stringify(value))
   }
 
-  return { notes, highlights, prefs, error, loaded, init, addNote, removeNote, setHighlight, setPrefs, getSetting, setSetting }
+  return { notes, highlights, bookmarks, prefs, error, loaded, init, addNote, removeNote, setHighlight, setBookmark, removeBookmark, setPrefs, getSetting, setSetting }
 }

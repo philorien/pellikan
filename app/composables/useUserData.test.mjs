@@ -1,7 +1,7 @@
 import { test, beforeEach } from 'node:test'
 import { readFileSync } from 'node:fs'
 import assert from 'node:assert/strict'
-import { legacyOps, noteFromRow, highlightsFromRows, prefsFromSettings, useUserData, DEFAULT_PREFS, TABS_SETTING, MIGRATED_SETTING } from './useUserData.ts'
+import { legacyOps, bookmarkFromRow, cleanLabel, BOOKMARK_LABEL_MAX, noteFromRow, highlightsFromRows, prefsFromSettings, useUserData, DEFAULT_PREFS, TABS_SETTING, MIGRATED_SETTING } from './useUserData.ts'
 import { parseSavedTabs } from './useTabs.ts'
 
 const NOW = 1_800_000_000_000
@@ -93,12 +93,12 @@ globalThis.useState = (key, init) => {
 }
 globalThis.errorMessage = (err) => (err instanceof Error ? err.message : String(err))
 
-/** Stands in for user.db: answers the four read statements and records the batches. */
-function stubUserDb({ settings = [], notes = [], highlights = [], fail = false } = {}) {
+/** Stands in for user.db: answers the read statements and records the batches. */
+function stubUserDb({ settings = [], notes = [], highlights = [], bookmarks = [], fail = false } = {}) {
   const batches = []
   globalThis.userQuery = async (name) => {
     if (fail) throw new Error('user.db is locked')
-    return { settings_all: settings, notes_all: notes, highlights_all: highlights }[name] ?? []
+    return { settings_all: settings, notes_all: notes, highlights_all: highlights, bookmarks_all: bookmarks }[name] ?? []
   }
   globalThis.userBatch = async (ops) => { batches.push(ops) }
   return batches
@@ -153,4 +153,80 @@ test('if user.db never answers, init() resolves after the timeout with an error,
   assert.equal(loaded.value, true)
   assert.equal(prefs.value.translation, 'KJV')
   assert.equal(error.value, null)
+})
+
+// ---------------------------------------------------------------------------------------------
+// Bookmarks
+// ---------------------------------------------------------------------------------------------
+
+test('a bookmark row becomes a bookmark with the book\'s OSIS id, and an unknown book is dropped', () => {
+  assert.deepEqual(bookmarkFromRow({ id: 3, book_id: 45, chapter: 8, verse: 28, label: 'Favourite', at: 1_700_000_000_000 }),
+    { id: 3, osis: 'Rom', chapter: 8, verse: 28, label: 'Favourite', at: 1_700_000_000_000 })
+  assert.equal(bookmarkFromRow({ id: 4, book_id: 99, chapter: 1, verse: 1, label: null, at: 0 }), null)
+})
+
+test('a label is trimmed and capped, and nothing left means no label', () => {
+  assert.equal(cleanLabel('  Rest  '), 'Rest')
+  assert.equal(cleanLabel('   '), null)
+  assert.equal(cleanLabel(null), null)
+  assert.equal(cleanLabel('x'.repeat(BOOKMARK_LABEL_MAX + 40))?.length, BOOKMARK_LABEL_MAX)
+})
+
+test('init() loads the bookmarks', async () => {
+  stubUserDb({ settings: [{ key: MIGRATED_SETTING, value: '1' }], bookmarks: [{ id: 1, book_id: 43, chapter: 3, verse: 16, label: null, at: 5 }] })
+  const { bookmarks, init } = useUserData()
+  await init()
+  assert.deepEqual(bookmarks.value.map((b) => `${b.osis} ${b.chapter}:${b.verse}`), ['John 3:16'])
+})
+
+test('a bookmark is written before it is shown, a second one on the same verse only relabels it, and removing writes first too', async () => {
+  const calls = []
+  let nextId = 10
+  globalThis.userQuery = async (name, params) => {
+    calls.push([name, params])
+    if (name === 'bookmark_set') return [{ id: params.label === 'Rest' ? 10 : nextId++, at: 1_700_000_000_000 }]
+    return []
+  }
+  const { bookmarks, error, setBookmark, removeBookmark } = useUserData()
+
+  assert.equal(await setBookmark('Ps', 23, 1), true)
+  assert.deepEqual(calls[0], ['bookmark_set', { book: 19, chapter: 23, verse: 1, label: null }])
+  assert.deepEqual(bookmarks.value.map((b) => [b.id, b.label]), [[10, null]])
+
+  assert.equal(await setBookmark('Ps', 23, 1, '  Rest  '), true) // same verse: the row is replaced, not duplicated
+  assert.deepEqual(bookmarks.value.map((b) => [b.id, b.label]), [[10, 'Rest']])
+
+  assert.equal(await setBookmark('Nope', 1, 1), false) // not a book
+  assert.equal(await setBookmark('Ps', 0, 1), false) // chapters start at 1
+  assert.equal(calls.length, 2)
+
+  await removeBookmark(10)
+  assert.deepEqual(calls.at(-1), ['bookmark_remove', { id: 10 }])
+  assert.deepEqual(bookmarks.value, [])
+  assert.equal(error.value, null)
+})
+
+test('a bookmark that could not be saved is not shown, and one that could not be removed stays', async () => {
+  globalThis.userQuery = async () => { throw new Error('disk full') }
+  const { bookmarks, error, setBookmark, removeBookmark } = useUserData()
+  assert.equal(await setBookmark('Rom', 8, 28), false)
+  assert.deepEqual(bookmarks.value, [])
+  assert.match(error.value, /could not be saved: disk full/)
+
+  error.value = null
+  bookmarks.value = [{ id: 1, osis: 'Rom', chapter: 8, verse: 28, label: null, at: 0 }]
+  await removeBookmark(1)
+  assert.equal(bookmarks.value.length, 1)
+  assert.match(error.value, /could not be saved: disk full/)
+})
+
+test('relabelling a bookmark keeps its place in the list, and a new one goes to the front', async () => {
+  globalThis.userQuery = async (name, params) => (name === 'bookmark_set' ? [{ id: params.chapter, at: 1 }] : [])
+  const { bookmarks, setBookmark } = useUserData()
+  await setBookmark('Ps', 1, 1)
+  await setBookmark('Ps', 2, 1)
+  await setBookmark('Ps', 3, 1)
+  assert.deepEqual(bookmarks.value.map((b) => b.chapter), [3, 2, 1])
+  await setBookmark('Ps', 1, 1, 'Oldest') // the oldest is relabelled: it must not jump to the top
+  assert.deepEqual(bookmarks.value.map((b) => [b.chapter, b.label]), [[3, null], [2, null], [1, 'Oldest']])
 })

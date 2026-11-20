@@ -12,7 +12,7 @@ let opener: HTMLElement | null = null
 
 interface Item { key: string; label: string; hint: string; icon: typeof Search; go: () => void }
 
-const pages: Array<[string, string]> = [['Library', '/library'], ['Search', '/search'], ['Notes', '/notes'], ['Highlights', '/highlights'], ['Credits and licenses', '/credits']]
+const pages: Array<[string, string]> = [['Library', '/library'], ['Search', '/search'], ['Notes', '/notes'], ['Bookmarks', '/bookmarks'], ['Highlights', '/highlights'], ['Credits and licenses', '/credits']]
 
 const items = computed<Item[]>(() => {
   const term = q.value.trim()

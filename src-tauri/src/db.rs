@@ -47,8 +47,14 @@ macro_rules! uq {
 /// Every file in data/queries/user must be listed here (check-db.mjs fails if one is missing). These run on user.db
 /// only, and unlike `QUERIES` they include writes.
 pub const USER_QUERIES: &[(&str, &str)] = &[
+    uq!("bookmark_remove"),
+    uq!("bookmark_set"),
+    uq!("bookmarks_all"),
     uq!("doc_chunks_add"),
     uq!("doc_refs_add"),
+    uq!("doc_refs_for_verse"),
+    uq!("doc_search"),
+    uq!("doc_search_count"),
     uq!("document_add"),
     uq!("document_by_hash"),
     uq!("document_fail"),
@@ -262,6 +268,31 @@ mod tests {
     }
 
     #[test]
+    fn bookmarks_are_one_per_verse_a_repeat_only_relabels_newest_first_removed_by_id() {
+        let c = user_db();
+        let at = json!({"book": 45, "chapter": 8, "verse": 28, "label": null});
+        let first = run_user(&c, "bookmark_set", &params(at.clone())).unwrap();
+        let id = first[0]["id"].as_i64().unwrap();
+        assert!(first[0]["at"].as_i64().unwrap() > 1_600_000_000_000); // milliseconds since the epoch
+        let again = run_user(&c, "bookmark_set", &params(json!({"book": 45, "chapter": 8, "verse": 28, "label": "Favourite"}))).unwrap();
+        assert_eq!(again[0]["id"].as_i64(), Some(id)); // same verse, same bookmark
+        run_user(&c, "bookmark_set", &params(json!({"book": 43, "chapter": 3, "verse": 16, "label": null}))).unwrap();
+
+        let all = run_user(&c, "bookmarks_all", &params(json!({}))).unwrap();
+        let refs: Vec<(i64, i64, i64)> = all.iter().map(|r| (r["book_id"].as_i64().unwrap(), r["chapter"].as_i64().unwrap(), r["verse"].as_i64().unwrap())).collect();
+        assert_eq!(refs, vec![(43, 3, 16), (45, 8, 28)]); // newest first
+        assert_eq!(all[1]["label"], "Favourite");
+        let mut bad = at.clone();
+        bad["chapter"] = Value::Null;
+        assert!(run_user(&c, "bookmark_set", &params(bad)).unwrap_err().contains("NOT NULL constraint failed"));
+
+        for r in &all {
+            run_user(&c, "bookmark_remove", &params(json!({"id": r["id"]}))).unwrap();
+        }
+        assert!(run_user(&c, "bookmarks_all", &params(json!({}))).unwrap().is_empty());
+    }
+
+    #[test]
     fn a_verse_has_one_highlight_and_settings_overwrite() {
         let c = user_db();
         let verse = json!({"book": 19, "chapter": 23, "verse": 1});
@@ -382,6 +413,83 @@ mod tests {
             assert_eq!(c.query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get::<_, i64>(0)).unwrap(), 0, "{table}");
         }
         assert_eq!(c.query_row("SELECT count(*) FROM doc_chunks_fts WHERE doc_chunks_fts MATCH 'together'", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    }
+
+    #[test]
+    fn passages_that_cite_a_verse_come_one_per_chunk_strongest_first_and_only_from_finished_books() {
+        let mut c = user_db();
+        let mut add = |title: &str, sha: &str, chunks: Value, finish: bool| -> i64 {
+            let doc = run_user(&c, "document_add", &params(json!({"title": title, "author": null, "format": "md", "original_name": format!("{sha}.md"), "sha256": sha}))).unwrap();
+            let id = doc[0]["id"].as_i64().unwrap();
+            let op = |name: &str| Op { name: name.into(), params: params(json!({"document": id, "chunks": chunks.to_string()})) };
+            run_user_batch(&mut c, &[op("doc_chunks_add"), op("doc_refs_add")]).unwrap();
+            if finish {
+                run_user(&c, "document_finish", &params(json!({"id": id, "chars": 1}))).unwrap();
+            }
+            id
+        };
+        let rom = |from: i64, to: i64, confidence: &str| json!({"book": 45, "chapter": 8, "from": from, "to": to, "confidence": confidence});
+        add("Romans notes", "cit-a", json!([
+            {"seq": 0, "heading": "Romans 8", "loc": null, "text": "Works together.", "refs": [rom(28, 28, "high"), rom(1, 39, "medium")]},
+            {"seq": 1, "heading": null, "loc": "p. 2", "text": "The whole chapter.", "refs": [rom(1, 39, "medium")]},
+            {"seq": 2, "heading": null, "loc": null, "text": "Elsewhere.", "refs": [{"book": 43, "chapter": 3, "from": 16, "to": 16, "confidence": "high"}]},
+        ]), true);
+        let unfinished = add("Still importing", "cit-b", json!([{"seq": 0, "heading": null, "loc": null, "text": "Half done.", "refs": [rom(28, 28, "high")]}]), false);
+
+        let at = |c: &Connection, chapter: i64, verse: i64| -> Vec<String> {
+            run_user(c, "doc_refs_for_verse", &params(json!({"book": 45, "chapter": chapter, "verse": verse, "limit": 50})))
+                .unwrap().iter().map(|r| format!("{}|{}", r["text"].as_str().unwrap(), r["confidence"].as_str().unwrap())).collect()
+        };
+        assert_eq!(at(&c, 8, 28), vec!["Works together.|high", "The whole chapter.|medium"]);
+        assert_eq!(at(&c, 8, 5), vec!["Works together.|medium", "The whole chapter.|medium"]); // only the chapter-wide references reach verse 5
+        assert!(at(&c, 9, 28).is_empty());
+        let one = run_user(&c, "doc_refs_for_verse", &params(json!({"book": 45, "chapter": 8, "verse": 28, "limit": 1}))).unwrap();
+        assert_eq!((one.len(), one[0]["title"].as_str(), one[0]["heading"].as_str()), (1, Some("Romans notes"), Some("Romans 8")));
+
+        run_user(&c, "document_finish", &params(json!({"id": unfinished, "chars": 1}))).unwrap();
+        assert_eq!(at(&c, 8, 28).len(), 3); // now the second book counts
+    }
+
+    #[test]
+    fn imported_books_are_searched_with_marked_snippets_and_only_when_finished() {
+        let mut c = user_db();
+        let mut add = |title: &str, sha: &str, texts: Value, finish: bool| -> i64 {
+            let doc = run_user(&c, "document_add", &params(json!({"title": title, "author": null, "format": "txt", "original_name": format!("{sha}.txt"), "sha256": sha}))).unwrap();
+            let id = doc[0]["id"].as_i64().unwrap();
+            let chunks: Vec<Value> = texts.as_array().unwrap().iter().enumerate()
+                .map(|(seq, t)| json!({"seq": seq, "heading": t["heading"], "loc": null, "text": t["text"], "refs": []})).collect();
+            let op = Op { name: "doc_chunks_add".into(), params: params(json!({"document": id, "chunks": json!(chunks).to_string()})) };
+            run_user_batch(&mut c, &[op]).unwrap();
+            if finish {
+                run_user(&c, "document_finish", &params(json!({"id": id, "chars": 1}))).unwrap();
+            }
+            id
+        };
+        let a = add("On Grace", "srch-a", json!([
+            {"text": "Grace is the free favour of God, given to sinners.", "heading": null},
+            {"text": "Nothing about it here.", "heading": null},
+            {"text": "Faith", "heading": "Grace alone"},
+        ]), true);
+        let b = add("Unfinished", "srch-b", json!([{"text": "More grace, still importing.", "heading": null}]), false);
+
+        let search = |c: &Connection, q: &str, limit: i64, offset: i64| run_user(c, "doc_search", &params(json!({"q": q, "limit": limit, "offset": offset}))).unwrap();
+        let count = |c: &Connection, q: &str| run_user(c, "doc_search_count", &params(json!({"q": q}))).unwrap()[0]["total"].as_i64().unwrap();
+
+        let found = search(&c, "\"grace\"", 10, 0);
+        assert_eq!(found.len(), 2); // the passage and the heading hit, not the unfinished book
+        assert!(found.iter().all(|r| r["title"] == "On Grace"));
+        let body = found.iter().find(|r| r["text"].as_str().unwrap().starts_with("Grace is")).unwrap();
+        assert!(body["snippet"].as_str().unwrap().contains("\u{2}Grace\u{3} is the free favour"));
+        assert_eq!(count(&c, "\"grace\""), 2);
+        assert_eq!(search(&c, "\"grace\"", 1, 1).len(), 1);
+        assert_eq!(count(&c, "\"zebra\""), 0);
+        assert_eq!(count(&c, "\"favours\""), 1); // stemmed, like the Bible search
+
+        run_user(&c, "document_finish", &params(json!({"id": b, "chars": 1}))).unwrap();
+        assert_eq!(count(&c, "\"grace\""), 3);
+        run_user(&c, "document_remove", &params(json!({"id": a}))).unwrap();
+        run_user(&c, "document_remove", &params(json!({"id": b}))).unwrap();
+        assert_eq!(count(&c, "\"grace\""), 0); // removed with the book, index included
     }
 
     #[test]

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronLeft, ChevronRight, Printer, Maximize2, Minimize2, PanelBottomOpen, X } from 'lucide-vue-next'
+import { Bookmark, ChevronLeft, ChevronRight, Printer, Maximize2, Minimize2, PanelBottomOpen, X } from 'lucide-vue-next'
 import { BOOKS, BOOK_BY_OSIS } from '~~/shared/books'
 import type { Word } from '~/utils/types'
 
@@ -8,7 +8,7 @@ const book = computed(() => BOOK_BY_OSIS[route.params.book as string])
 const chapter = computed(() => Number(route.params.chapter))
 const targetVerse = computed(() => Number(route.query.v) || null)
 
-const { prefs, highlights, setPrefs } = useUserData()
+const { prefs, highlights, bookmarks, loaded: userLoaded, setPrefs, setBookmark, removeBookmark } = useUserData()
 const lastRead = useState<string>('last-read', () => DEFAULT_PATH)
 const translation = useTranslation()
 const bibleError = useBibleError()
@@ -56,7 +56,7 @@ const { data, pending, error } = await useAsyncData(
 const selectedVerse = ref<number | null>(null)
 const selectedNote = ref<{ kind: string; text: string } | null>(null)
 const pickedWord = ref<Word | null>(null)
-const guideTab = ref<'overview' | 'xref' | 'word'>('overview')
+const guideTab = ref<'overview' | 'xref' | 'word' | 'library'>('overview')
 
 watch(() => [route.params.book, route.params.chapter], () => {
   selectedVerse.value = targetVerse.value; selectedNote.value = null; pickedWord.value = null
@@ -103,6 +103,15 @@ const next = computed(() => {
 const originalVerse = computed(() => selectedVerse.value ?? data.value?.verses[0]?.verse ?? 1)
 const hlColor = (v: number) => highlights.value[verseKey(route.params.book as string, chapter.value, v)]
 
+// The bookmark button marks the selected verse, or the start of the chapter (verse 1) when none is selected.
+const bookmarkVerse = computed(() => selectedVerse.value ?? 1)
+const bookmarked = computed(() => bookmarks.value.find((b) => b.osis === route.params.book && b.chapter === chapter.value && b.verse === bookmarkVerse.value) ?? null)
+const bookmarkRef = computed(() => (selectedVerse.value ? `${book.value?.name ?? ''} ${chapter.value}:${selectedVerse.value}` : `the start of ${book.value?.name ?? ''} ${chapter.value}`))
+function toggleBookmark() {
+  if (bookmarked.value) void removeBookmark(bookmarked.value.id)
+  else void setBookmark(route.params.book as string, chapter.value, bookmarkVerse.value)
+}
+
 useHead(() => ({ title: valid.value ? `${book.value!.name} ${chapter.value} · Pellikan` : `${bibleError.value ? 'Bible data not available' : 'Passage not found'} · Pellikan` }))
 </script>
 
@@ -131,6 +140,15 @@ useHead(() => ({ title: valid.value ? `${book.value!.name} ${chapter.value} · P
             <button v-if="!prefs.focus && valid && data" type="button" class="flex h-10 items-center gap-1.5 rounded-lg px-2.5 text-sm hover:bg-surface-2 hover:text-fg md:hidden" aria-label="Open study panels" :aria-expanded="sheet" @click="sheet = true">
               <PanelBottomOpen class="size-5" aria-hidden="true" />Study
             </button>
+            <button
+              v-if="valid && data" type="button"
+              class="grid size-10 place-items-center rounded-lg hover:bg-surface-2 hover:text-fg md:size-9"
+              :class="[bookmarked ? 'text-accent' : '', 'disabled:opacity-40']"
+              :aria-label="bookmarked ? `Remove the bookmark on ${bookmarkRef}` : `Bookmark ${bookmarkRef}`"
+              :aria-pressed="!!bookmarked"
+              :disabled="!userLoaded"
+              @click="toggleBookmark"
+            ><Bookmark class="size-5" :class="bookmarked ? 'fill-current' : ''" aria-hidden="true" /></button>
             <NuxtLink v-if="prev" :to="`/read/${prev.osis}/${prev.ch}`" class="grid size-10 place-items-center rounded-lg hover:bg-surface-2 hover:text-fg md:size-9" aria-label="Previous chapter"><ChevronLeft class="size-5" /></NuxtLink>
             <NuxtLink v-if="next" :to="`/read/${next.osis}/${next.ch}`" class="grid size-10 place-items-center rounded-lg hover:bg-surface-2 hover:text-fg md:size-9" aria-label="Next chapter"><ChevronRight class="size-5" /></NuxtLink>
             <span class="mx-1 hidden h-5 w-px bg-line md:block" aria-hidden="true" />

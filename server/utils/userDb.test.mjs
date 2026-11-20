@@ -162,3 +162,82 @@ test('an interrupted import is marked failed and a finished one is not', () => {
   runUserQuery('document_remove', { id: stuck })
   runUserQuery('document_remove', { id: done })
 })
+
+test('passages that cite a verse: one row each, strongest first, finished books only', () => {
+  const add = (title, sha, chunks, finish) => {
+    const [{ id }] = runUserQuery('document_add', { title, author: null, format: 'md', original_name: `${sha}.md`, sha256: sha })
+    const json = JSON.stringify(chunks)
+    runUserBatch([{ name: 'doc_chunks_add', params: { document: id, chunks: json } }, { name: 'doc_refs_add', params: { document: id, chunks: json } }])
+    if (finish) runUserQuery('document_finish', { id, chars: 1 })
+    return id
+  }
+  const rom = (from, to, confidence) => ({ book: 45, chapter: 8, from, to, confidence })
+  const a = add('Romans notes', 'cit-a', [
+    { seq: 0, heading: 'Romans 8', loc: null, text: 'Works together.', refs: [rom(28, 28, 'high'), rom(1, 39, 'medium')] }, // cites the verse twice
+    { seq: 1, heading: null, loc: 'p. 2', text: 'The whole chapter.', refs: [rom(1, 39, 'medium')] },
+    { seq: 2, heading: null, loc: null, text: 'Elsewhere.', refs: [{ book: 43, chapter: 3, from: 16, to: 16, confidence: 'high' }] },
+  ], true)
+  const unfinished = add('Still importing', 'cit-b', [{ seq: 0, heading: null, loc: null, text: 'Half done.', refs: [rom(28, 28, 'high')] }], false)
+
+  const at = (chapter, verse) => runUserQuery('doc_refs_for_verse', { book: 45, chapter, verse, limit: 50 }).map((r) => `${r.text}|${r.confidence}`)
+  assert.deepEqual(at(8, 28), ['Works together.|high', 'The whole chapter.|medium'])
+  assert.deepEqual(at(8, 5), ['Works together.|medium', 'The whole chapter.|medium']) // only the chapter-wide references reach verse 5
+  assert.deepEqual(at(9, 28), [])
+  assert.equal(runUserQuery('doc_refs_for_verse', { book: 45, chapter: 8, verse: 28, limit: 1 }).length, 1)
+  const [row] = runUserQuery('doc_refs_for_verse', { book: 45, chapter: 8, verse: 28, limit: 1 })
+  assert.deepEqual({ title: row.title, heading: row.heading, document_id: row.document_id }, { title: 'Romans notes', heading: 'Romans 8', document_id: a })
+
+  runUserQuery('document_finish', { id: unfinished, chars: 1 })
+  assert.equal(at(8, 28).length, 3) // now the second book counts
+  runUserQuery('document_remove', { id: a })
+  runUserQuery('document_remove', { id: unfinished })
+})
+
+test('searching imported books: ranked, with marked snippets, finished books only, paged', () => {
+  const add = (title, sha, texts, finish) => {
+    const [{ id }] = runUserQuery('document_add', { title, author: null, format: 'txt', original_name: `${sha}.txt`, sha256: sha })
+    const chunks = JSON.stringify(texts.map((t, seq) => ({ seq, heading: t.heading ?? null, loc: null, text: t.text, refs: [] })))
+    runUserBatch([{ name: 'doc_chunks_add', params: { document: id, chunks } }])
+    if (finish) runUserQuery('document_finish', { id, chars: 1 })
+    return id
+  }
+  const a = add('On Grace', 'srch-a', [
+    { text: 'Grace is the free favour of God, given to sinners.' },
+    { text: 'Nothing about it here.' },
+    { text: 'Faith', heading: 'Grace alone' },
+  ], true)
+  const b = add('Unfinished', 'srch-b', [{ text: 'More grace, still importing.' }], false)
+
+  const found = runUserQuery('doc_search', { q: '"grace"', limit: 10, offset: 0 })
+  assert.equal(found.length, 2) // the passage and the heading hit, not the unfinished book
+  assert.ok(found.every((r) => r.title === 'On Grace'))
+  const body = found.find((r) => r.text.startsWith('Grace is'))
+  assert.match(body.snippet, /\u0002Grace\u0003 is the free favour/)
+  assert.equal(runUserQuery('doc_search_count', { q: '"grace"' })[0].total, 2)
+  assert.equal(runUserQuery('doc_search', { q: '"grace"', limit: 1, offset: 1 }).length, 1)
+  assert.equal(runUserQuery('doc_search_count', { q: '"zebra"' })[0].total, 0)
+  assert.equal(runUserQuery('doc_search_count', { q: '"favours"' })[0].total, 1) // stemmed, like the Bible search
+
+  runUserQuery('document_finish', { id: b, chars: 1 })
+  assert.equal(runUserQuery('doc_search_count', { q: '"grace"' })[0].total, 3)
+  runUserQuery('document_remove', { id: a })
+  runUserQuery('document_remove', { id: b })
+  assert.equal(runUserQuery('doc_search_count', { q: '"grace"' })[0].total, 0) // removed with the book, index included
+})
+
+test('bookmarks: one per verse, a repeat only relabels, newest first, removed by id', () => {
+  const at = { book: 45, chapter: 8, verse: 28 }
+  const [first] = runUserQuery('bookmark_set', { ...at, label: null })
+  assert.equal(typeof first.id, 'number')
+  assert.ok(first.at > 1_600_000_000_000) // milliseconds since the epoch
+  const [again] = runUserQuery('bookmark_set', { ...at, label: 'Favourite' })
+  assert.equal(again.id, first.id) // same verse, same bookmark
+  runUserQuery('bookmark_set', { book: 43, chapter: 3, verse: 16, label: null })
+
+  const all = runUserQuery('bookmarks_all', {})
+  assert.deepEqual(all.map((r) => [r.book_id, r.chapter, r.verse, r.label]), [[43, 3, 16, null], [45, 8, 28, 'Favourite']]) // newest first
+  assert.throws(() => runUserQuery('bookmark_set', { ...at, label: null, chapter: null }), /NOT NULL constraint failed/)
+
+  for (const r of all) runUserQuery('bookmark_remove', { id: r.id })
+  assert.deepEqual(runUserQuery('bookmarks_all', {}), [])
+})

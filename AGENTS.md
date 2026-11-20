@@ -59,8 +59,8 @@ before the UI shows anything; build it with `npm run data`.
   call the composables (`useUserData.ts`, `useTabs.ts`), never `userQuery` directly. Use `userBatch` when several rows
   must land together. Notes and highlights are written before the screen shows them; a failed save sets `error`
   (shown by `app.vue`) and must never look saved. The first run copies old `localStorage` data across once
-  (`legacyOps`). Only the theme stays in `localStorage`, because it is read before first paint. Bookmarks have a
-  table but no statements or UI yet.
+  (`legacyOps`). Only the theme stays in `localStorage`, because it is read before first paint. Bookmarks
+  (`setBookmark`, `removeBookmark`) work the same way. A bookmark on a whole chapter is stored as verse 1.
 - **Imported books go through `useDocuments.ts`.** Extraction runs in the web view (`shared/doc-import.ts`, in the
   Worker `app/workers/extract.worker.ts`) and the result is stored with the `doc*` statements in `data/queries/user/`:
   document row as `processing`, chunks and references in batches (one JSON value per batch, see `doc_chunks_add.sql`),

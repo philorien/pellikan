@@ -201,5 +201,5 @@ Good first jobs, roughly in order of value:
 
 1. Launch the Tauri window on macOS and fix what breaks.
 2. The accessibility fixes listed in [ACCESSIBILITY.md](ACCESSIBILITY.md#known-gaps).
-3. Bookmarks: the table exists in `user.db`, but there are no statements or UI for it yet.
-4. Linting and formatting config (there is none yet).
+3. Importers for EPUB, DOCX and PDF (`shared/doc-import.ts` returns an `ImportedDocument`; storage already exists).
+4. Formatting config: ESLint is set up, but there is no formatter, and adding one would reformat most of the code.
