@@ -75,14 +75,15 @@ export async function translationCommand<T = unknown>(cmd: 'translation_catalog'
   return (await plainFetch(`/api/translations/${path}`, { method, body: method === 'POST' ? args : undefined })) as T
 }
 
-/**
- * The reader's current translation. The list is the translations built into bible.db plus any the user has
- * downloaded (see packs.rs). Falls back to the WEB if the chosen one is not available (for example, was removed).
- */
+/** Why bible.db could not be read, or null. Set by useTranslation().load(); app.vue shows it. */
 export function useBibleError() {
   return useState<string | null>('bible-error', () => null)
 }
 
+/**
+ * The reader's current translation. The list is the translations built into bible.db plus any the user has
+ * downloaded (see packs.rs). Falls back to the WEB if the chosen one is not available (for example, was removed).
+ */
 export function useTranslation() {
   const bibleError = useBibleError()
   const { prefs, setPrefs } = useUserData()
