@@ -30,6 +30,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit production dependencies (informational)
+        run: npm audit --omit=dev
+        continue-on-error: true
+
       - name: Type check
         run: npm run typecheck
 
