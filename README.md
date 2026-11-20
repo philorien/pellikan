@@ -66,13 +66,15 @@ The biography above is summarized from the linked Wikipedia article, which marks
 - **Dictionaries.** Easton's and Smith's, searchable.
 - **Study guide, notes and highlights.** Section headings, footnotes and cross-references for the chapter; notes and
   four highlight colors per verse, with overview pages.
-- **Full-text search** across the selected translation.
+- **Bookmarks.** Mark the selected verse (or the start of a chapter) from the reader, add a label, and see them all on
+  the Bookmarks page.
+- **Full-text search** across the selected translation, and across your own books (a switch on the Search page).
 - **Your own books, as plain text or Markdown.** Import a `.txt` or `.md` file on the Library page. Pellikan splits it
   into passages and finds the Scripture references in it ("Rom. 8:28", "1 Cor 13:4, 7", "Rom. viii. 28"). Files are
-  read on your computer and the text is stored in `user.db`; the original file is not kept.
+  read on your computer and the text is stored in `user.db`; the original file is not kept. The **Books** tab of the
+  Study Guide lists the passages in your books that cite the selected verse.
 
-Not built yet: showing your books beside the verses they cite, searching them, importing EPUB, PDF and DOCX,
-AI-assisted search, signed installers. See the [roadmap](#roadmap).
+Not built yet: importing EPUB, PDF and DOCX, AI-assisted search, signed installers. See the [roadmap](#roadmap).
 
 ## Install from GitHub
 
@@ -250,12 +252,12 @@ Checked, with the commands that check it:
 - **Data build** from the real upstream files. `npm run data:check` runs 85 checks: database integrity,
   verse counts, Hebrew and English chapters ending on the same verse, search ranking, every query preparing, and
   spot checks on the lexicons, commentary and cross-references.
-- **122 Node unit tests** (`npm test`) covering the parsers and loaders, the Scripture reference scanner, text and
+- **130 Node unit tests** (`npm test`) covering the parsers and loaders, the Scripture reference scanner, text and
   Markdown import (extraction, chunking, and the import flow including a failed save removing the half-imported book),
   the dev server's query runners, and the
   conversions that move older `localStorage` data into `user.db`.
-- **23 Rust tests** (`cargo test --lib`, with `bible.db` built), including notes, highlights and settings round trips on `user.db`, the
-  `user.db` schema 1 to 2 upgrade (and its refusal to run over a document), importing, searching and removing a book, a failed
+- **26 Rust tests** (`cargo test --lib`, with `bible.db` built), including notes, highlights, bookmarks and settings round trips on `user.db`, the
+  `user.db` schema 1 to 2 upgrade (and its refusal to run over a document), importing, searching and removing a book, finding the passages that cite a verse, a failed
   batch leaving nothing behind, the `user_query` and `user_batch` commands called through Tauri's mock IPC runtime
   (with remote origins refused), and translation-pack installs: wrong checksum, unsafe ids, a pack
   holding another translation's verses, and URL rules. The Rust crate compiles on macOS.
@@ -263,10 +265,11 @@ Checked, with the commands that check it:
   Word Study lexicon entries, Matthew Henry, cross-references, the dictionary, and installing and removing a
   translation pack from the real `packs` release. Also notes, highlights, text size and tabs saving to `user.db` and
   surviving a reload, older `localStorage` data being copied across on first run, and a failed save showing an error
-  and keeping the unsaved note text.
+  and keeping the unsaved note text. Also bookmarking from the reader, labelling and removing a bookmark on the Bookmarks page,
+  the Books tab in the Study Guide, and searching imported books, all against a seeded `user.db`.
 
 **Not verified:** saving notes and highlights inside the desktop window. The `user_query` and `user_batch` commands are
-tested through Tauri's mock IPC runtime, but not in a running app with the real web view and capability files. Windows and Linux, narrow phone-width layouts, and accessibility with a screen reader. The packaged macOS desktop app is in early preview (v0.0.1) and has had little real-world testing. See [ACCESSIBILITY.md](ACCESSIBILITY.md) for the gaps found so far.
+tested through Tauri's mock IPC runtime, but not in a running app with the real web view and capability files. Windows and Linux, narrow phone-width layouts (the primary navigation now has seven items, which has not been checked on a phone), and accessibility with a screen reader. The packaged macOS desktop app is in early preview (v0.0.1) and has had little real-world testing. See [ACCESSIBILITY.md](ACCESSIBILITY.md) for the gaps found so far.
 
 ## Known limitations
 
@@ -287,10 +290,9 @@ Measured details are in [DATA_SOURCES.md](DATA_SOURCES.md). The ones that matter
 The live roadmap, with status for each item, is the [Pellikan GitHub Project](https://github.com/users/philorien/projects/2). The list below is the long-range order.
 
 1. Refine the packaged desktop app on macOS. CI already runs the Node and Rust tests (Linux only).
-2. Move notes, highlights and bookmarks into `user.db`. Notes, highlights, tabs and preferences are done; bookmarks
-   have a table but no UI yet.
-3. Import your own books into `user.db`, with Scripture references found and linked. Plain text and Markdown import
-   works; next is showing the passages that cite the verse you are reading, then search, then EPUB, DOCX and PDF.
+2. Move notes, highlights and bookmarks into `user.db`. Done: notes, highlights, bookmarks, tabs and preferences.
+3. Import your own books into `user.db`, with Scripture references found and linked. Plain text and Markdown import,
+   the passages that cite the verse you are reading, and search over your books work; next are EPUB, DOCX and PDF.
 4. AI-assisted search and questions with a bring-your-own key (Anthropic or Gemini), keys in the OS keychain and never
    in a database. Every answer carries a plain notice: AI can summarize and cross-reference text, but it cannot
    discern what the Spirit is saying. It is a concordance with a mouth, not a teacher.

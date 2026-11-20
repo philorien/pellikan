@@ -50,6 +50,7 @@ test('tabTitle parses known static pages and fallbacks', () => {
   assert.deepEqual(tabTitle('/dictionary'), { title: 'Dictionary', kind: 'page' })
   assert.deepEqual(tabTitle('/notes'), { title: 'Notes', kind: 'page' })
   assert.deepEqual(tabTitle('/highlights'), { title: 'Highlights', kind: 'page' })
+  assert.deepEqual(tabTitle('/bookmarks'), { title: 'Bookmarks', kind: 'page' })
   assert.deepEqual(tabTitle('/credits'), { title: 'Credits', kind: 'page' })
   assert.deepEqual(tabTitle('/custom-route'), { title: 'Pellikan', kind: 'page' })
 })

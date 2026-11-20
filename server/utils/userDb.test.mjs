@@ -224,3 +224,20 @@ test('searching imported books: ranked, with marked snippets, finished books onl
   runUserQuery('document_remove', { id: b })
   assert.equal(runUserQuery('doc_search_count', { q: '"grace"' })[0].total, 0) // removed with the book, index included
 })
+
+test('bookmarks: one per verse, a repeat only relabels, newest first, removed by id', () => {
+  const at = { book: 45, chapter: 8, verse: 28 }
+  const [first] = runUserQuery('bookmark_set', { ...at, label: null })
+  assert.equal(typeof first.id, 'number')
+  assert.ok(first.at > 1_600_000_000_000) // milliseconds since the epoch
+  const [again] = runUserQuery('bookmark_set', { ...at, label: 'Favourite' })
+  assert.equal(again.id, first.id) // same verse, same bookmark
+  runUserQuery('bookmark_set', { book: 43, chapter: 3, verse: 16, label: null })
+
+  const all = runUserQuery('bookmarks_all', {})
+  assert.deepEqual(all.map((r) => [r.book_id, r.chapter, r.verse, r.label]), [[43, 3, 16, null], [45, 8, 28, 'Favourite']]) // newest first
+  assert.throws(() => runUserQuery('bookmark_set', { ...at, label: null, chapter: null }), /NOT NULL constraint failed/)
+
+  for (const r of all) runUserQuery('bookmark_remove', { id: r.id })
+  assert.deepEqual(runUserQuery('bookmarks_all', {}), [])
+})

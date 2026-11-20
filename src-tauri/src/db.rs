@@ -47,6 +47,9 @@ macro_rules! uq {
 /// Every file in data/queries/user must be listed here (check-db.mjs fails if one is missing). These run on user.db
 /// only, and unlike `QUERIES` they include writes.
 pub const USER_QUERIES: &[(&str, &str)] = &[
+    uq!("bookmark_remove"),
+    uq!("bookmark_set"),
+    uq!("bookmarks_all"),
     uq!("doc_chunks_add"),
     uq!("doc_refs_add"),
     uq!("doc_refs_for_verse"),
@@ -262,6 +265,31 @@ mod tests {
 
         run_user(&c, "note_remove", &params(json!({"id": id}))).unwrap();
         assert_eq!(run_user(&c, "notes_all", &params(json!({}))).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn bookmarks_are_one_per_verse_a_repeat_only_relabels_newest_first_removed_by_id() {
+        let c = user_db();
+        let at = json!({"book": 45, "chapter": 8, "verse": 28, "label": null});
+        let first = run_user(&c, "bookmark_set", &params(at.clone())).unwrap();
+        let id = first[0]["id"].as_i64().unwrap();
+        assert!(first[0]["at"].as_i64().unwrap() > 1_600_000_000_000); // milliseconds since the epoch
+        let again = run_user(&c, "bookmark_set", &params(json!({"book": 45, "chapter": 8, "verse": 28, "label": "Favourite"}))).unwrap();
+        assert_eq!(again[0]["id"].as_i64(), Some(id)); // same verse, same bookmark
+        run_user(&c, "bookmark_set", &params(json!({"book": 43, "chapter": 3, "verse": 16, "label": null}))).unwrap();
+
+        let all = run_user(&c, "bookmarks_all", &params(json!({}))).unwrap();
+        let refs: Vec<(i64, i64, i64)> = all.iter().map(|r| (r["book_id"].as_i64().unwrap(), r["chapter"].as_i64().unwrap(), r["verse"].as_i64().unwrap())).collect();
+        assert_eq!(refs, vec![(43, 3, 16), (45, 8, 28)]); // newest first
+        assert_eq!(all[1]["label"], "Favourite");
+        let mut bad = at.clone();
+        bad["chapter"] = Value::Null;
+        assert!(run_user(&c, "bookmark_set", &params(bad)).unwrap_err().contains("NOT NULL constraint failed"));
+
+        for r in &all {
+            run_user(&c, "bookmark_remove", &params(json!({"id": r["id"]}))).unwrap();
+        }
+        assert!(run_user(&c, "bookmarks_all", &params(json!({}))).unwrap().is_empty());
     }
 
     #[test]
