@@ -50,6 +50,8 @@ pub const USER_QUERIES: &[(&str, &str)] = &[
     uq!("doc_chunks_add"),
     uq!("doc_refs_add"),
     uq!("doc_refs_for_verse"),
+    uq!("doc_search"),
+    uq!("doc_search_count"),
     uq!("document_add"),
     uq!("document_by_hash"),
     uq!("document_fail"),
@@ -418,6 +420,48 @@ mod tests {
 
         run_user(&c, "document_finish", &params(json!({"id": unfinished, "chars": 1}))).unwrap();
         assert_eq!(at(&c, 8, 28).len(), 3); // now the second book counts
+    }
+
+    #[test]
+    fn imported_books_are_searched_with_marked_snippets_and_only_when_finished() {
+        let mut c = user_db();
+        let mut add = |title: &str, sha: &str, texts: Value, finish: bool| -> i64 {
+            let doc = run_user(&c, "document_add", &params(json!({"title": title, "author": null, "format": "txt", "original_name": format!("{sha}.txt"), "sha256": sha}))).unwrap();
+            let id = doc[0]["id"].as_i64().unwrap();
+            let chunks: Vec<Value> = texts.as_array().unwrap().iter().enumerate()
+                .map(|(seq, t)| json!({"seq": seq, "heading": t["heading"], "loc": null, "text": t["text"], "refs": []})).collect();
+            let op = Op { name: "doc_chunks_add".into(), params: params(json!({"document": id, "chunks": json!(chunks).to_string()})) };
+            run_user_batch(&mut c, &[op]).unwrap();
+            if finish {
+                run_user(&c, "document_finish", &params(json!({"id": id, "chars": 1}))).unwrap();
+            }
+            id
+        };
+        let a = add("On Grace", "srch-a", json!([
+            {"text": "Grace is the free favour of God, given to sinners.", "heading": null},
+            {"text": "Nothing about it here.", "heading": null},
+            {"text": "Faith", "heading": "Grace alone"},
+        ]), true);
+        let b = add("Unfinished", "srch-b", json!([{"text": "More grace, still importing.", "heading": null}]), false);
+
+        let search = |c: &Connection, q: &str, limit: i64, offset: i64| run_user(c, "doc_search", &params(json!({"q": q, "limit": limit, "offset": offset}))).unwrap();
+        let count = |c: &Connection, q: &str| run_user(c, "doc_search_count", &params(json!({"q": q}))).unwrap()[0]["total"].as_i64().unwrap();
+
+        let found = search(&c, "\"grace\"", 10, 0);
+        assert_eq!(found.len(), 2); // the passage and the heading hit, not the unfinished book
+        assert!(found.iter().all(|r| r["title"] == "On Grace"));
+        let body = found.iter().find(|r| r["text"].as_str().unwrap().starts_with("Grace is")).unwrap();
+        assert!(body["snippet"].as_str().unwrap().contains("\u{2}Grace\u{3} is the free favour"));
+        assert_eq!(count(&c, "\"grace\""), 2);
+        assert_eq!(search(&c, "\"grace\"", 1, 1).len(), 1);
+        assert_eq!(count(&c, "\"zebra\""), 0);
+        assert_eq!(count(&c, "\"favours\""), 1); // stemmed, like the Bible search
+
+        run_user(&c, "document_finish", &params(json!({"id": b, "chars": 1}))).unwrap();
+        assert_eq!(count(&c, "\"grace\""), 3);
+        run_user(&c, "document_remove", &params(json!({"id": a}))).unwrap();
+        run_user(&c, "document_remove", &params(json!({"id": b}))).unwrap();
+        assert_eq!(count(&c, "\"grace\""), 0); // removed with the book, index included
     }
 
     #[test]

@@ -192,3 +192,35 @@ test('passages that cite a verse: one row each, strongest first, finished books 
   runUserQuery('document_remove', { id: a })
   runUserQuery('document_remove', { id: unfinished })
 })
+
+test('searching imported books: ranked, with marked snippets, finished books only, paged', () => {
+  const add = (title, sha, texts, finish) => {
+    const [{ id }] = runUserQuery('document_add', { title, author: null, format: 'txt', original_name: `${sha}.txt`, sha256: sha })
+    const chunks = JSON.stringify(texts.map((t, seq) => ({ seq, heading: t.heading ?? null, loc: null, text: t.text, refs: [] })))
+    runUserBatch([{ name: 'doc_chunks_add', params: { document: id, chunks } }])
+    if (finish) runUserQuery('document_finish', { id, chars: 1 })
+    return id
+  }
+  const a = add('On Grace', 'srch-a', [
+    { text: 'Grace is the free favour of God, given to sinners.' },
+    { text: 'Nothing about it here.' },
+    { text: 'Faith', heading: 'Grace alone' },
+  ], true)
+  const b = add('Unfinished', 'srch-b', [{ text: 'More grace, still importing.' }], false)
+
+  const found = runUserQuery('doc_search', { q: '"grace"', limit: 10, offset: 0 })
+  assert.equal(found.length, 2) // the passage and the heading hit, not the unfinished book
+  assert.ok(found.every((r) => r.title === 'On Grace'))
+  const body = found.find((r) => r.text.startsWith('Grace is'))
+  assert.match(body.snippet, /\u0002Grace\u0003 is the free favour/)
+  assert.equal(runUserQuery('doc_search_count', { q: '"grace"' })[0].total, 2)
+  assert.equal(runUserQuery('doc_search', { q: '"grace"', limit: 1, offset: 1 }).length, 1)
+  assert.equal(runUserQuery('doc_search_count', { q: '"zebra"' })[0].total, 0)
+  assert.equal(runUserQuery('doc_search_count', { q: '"favours"' })[0].total, 1) // stemmed, like the Bible search
+
+  runUserQuery('document_finish', { id: b, chars: 1 })
+  assert.equal(runUserQuery('doc_search_count', { q: '"grace"' })[0].total, 3)
+  runUserQuery('document_remove', { id: a })
+  runUserQuery('document_remove', { id: b })
+  assert.equal(runUserQuery('doc_search_count', { q: '"grace"' })[0].total, 0) // removed with the book, index included
+})
