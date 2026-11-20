@@ -246,7 +246,10 @@ export function useUserData() {
     try {
       const [row] = await userQuery<{ id: number; at: number }>('bookmark_set', { book: book.id, chapter, verse, label: text })
       const saved: UserBookmark = { id: row!.id, osis, chapter, verse, label: text, at: row!.at }
-      bookmarks.value = [saved, ...bookmarks.value.filter((b) => b.id !== saved.id)]
+      // A relabel keeps the bookmark's place: the list is newest first by creation date, and a relabel does not change it
+      // (bookmark_set keeps created_at). Only a new bookmark goes to the front.
+      const exists = bookmarks.value.some((b) => b.id === saved.id)
+      bookmarks.value = exists ? bookmarks.value.map((b) => (b.id === saved.id ? saved : b)) : [saved, ...bookmarks.value]
       return true
     } catch (err) {
       failed(err)

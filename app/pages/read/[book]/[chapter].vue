@@ -8,7 +8,7 @@ const book = computed(() => BOOK_BY_OSIS[route.params.book as string])
 const chapter = computed(() => Number(route.params.chapter))
 const targetVerse = computed(() => Number(route.query.v) || null)
 
-const { prefs, highlights, bookmarks, setPrefs, setBookmark, removeBookmark } = useUserData()
+const { prefs, highlights, bookmarks, loaded: userLoaded, setPrefs, setBookmark, removeBookmark } = useUserData()
 const lastRead = useState<string>('last-read', () => DEFAULT_PATH)
 const translation = useTranslation()
 const bibleError = useBibleError()
@@ -106,7 +106,7 @@ const hlColor = (v: number) => highlights.value[verseKey(route.params.book as st
 // The bookmark button marks the selected verse, or the start of the chapter (verse 1) when none is selected.
 const bookmarkVerse = computed(() => selectedVerse.value ?? 1)
 const bookmarked = computed(() => bookmarks.value.find((b) => b.osis === route.params.book && b.chapter === chapter.value && b.verse === bookmarkVerse.value) ?? null)
-const bookmarkRef = computed(() => `${book.value?.name ?? ''} ${chapter.value}:${bookmarkVerse.value}`)
+const bookmarkRef = computed(() => (selectedVerse.value ? `${book.value?.name ?? ''} ${chapter.value}:${selectedVerse.value}` : `the start of ${book.value?.name ?? ''} ${chapter.value}`))
 function toggleBookmark() {
   if (bookmarked.value) void removeBookmark(bookmarked.value.id)
   else void setBookmark(route.params.book as string, chapter.value, bookmarkVerse.value)
@@ -143,9 +143,10 @@ useHead(() => ({ title: valid.value ? `${book.value!.name} ${chapter.value} · P
             <button
               v-if="valid && data" type="button"
               class="grid size-10 place-items-center rounded-lg hover:bg-surface-2 hover:text-fg md:size-9"
-              :class="bookmarked ? 'text-accent' : ''"
+              :class="[bookmarked ? 'text-accent' : '', 'disabled:opacity-40']"
               :aria-label="bookmarked ? `Remove the bookmark on ${bookmarkRef}` : `Bookmark ${bookmarkRef}`"
               :aria-pressed="!!bookmarked"
+              :disabled="!userLoaded"
               @click="toggleBookmark"
             ><Bookmark class="size-5" :class="bookmarked ? 'fill-current' : ''" aria-hidden="true" /></button>
             <NuxtLink v-if="prev" :to="`/read/${prev.osis}/${prev.ch}`" class="grid size-10 place-items-center rounded-lg hover:bg-surface-2 hover:text-fg md:size-9" aria-label="Previous chapter"><ChevronLeft class="size-5" /></NuxtLink>

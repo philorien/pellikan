@@ -219,3 +219,14 @@ test('a bookmark that could not be saved is not shown, and one that could not be
   assert.equal(bookmarks.value.length, 1)
   assert.match(error.value, /could not be saved: disk full/)
 })
+
+test('relabelling a bookmark keeps its place in the list, and a new one goes to the front', async () => {
+  globalThis.userQuery = async (name, params) => (name === 'bookmark_set' ? [{ id: params.chapter, at: 1 }] : [])
+  const { bookmarks, setBookmark } = useUserData()
+  await setBookmark('Ps', 1, 1)
+  await setBookmark('Ps', 2, 1)
+  await setBookmark('Ps', 3, 1)
+  assert.deepEqual(bookmarks.value.map((b) => b.chapter), [3, 2, 1])
+  await setBookmark('Ps', 1, 1, 'Oldest') // the oldest is relabelled: it must not jump to the top
+  assert.deepEqual(bookmarks.value.map((b) => [b.chapter, b.label]), [[3, null], [2, null], [1, 'Oldest']])
+})
