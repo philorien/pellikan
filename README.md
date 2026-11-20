@@ -206,6 +206,7 @@ for localhost). Details are in [DATA_SOURCES.md](DATA_SOURCES.md#optional-transl
 | `npm run dev`                                             | Browser dev server with a dev-only query API (http://localhost:3000)                                                                                        |
 | `npm run tauri:dev` / `tauri:build`                       | Desktop app / installer                                                                                                                                     |
 | `npm test`                                                | Node unit tests                                                                                                                                             |
+| `npm run typecheck`                                       | Type check the Nuxt app and dev server (`vue-tsc`)                                                                                                          |
 | `cd src-tauri && cargo test --lib`                        | Rust tests. Those that need data run against `data/build/bible.db` and silently pass if it is missing, so build it first (use `SDKROOT` if needed on macOS) |
 | `npm run build`                                           | Static site build                                                                                                                                           |
 
@@ -242,7 +243,7 @@ copied in: if Nuxt falls back from port 3000 to 3001, the second origin's old da
 
 Checked, with the commands that check it:
 
-- **Continuous integration** (`.github/workflows/ci.yml`) runs `npm test`, the static build, a release data build,
+- **Continuous integration** (`.github/workflows/ci.yml`) runs `npm run typecheck`, `npm test`, the static build, a release data build,
   `npm run data:check` and `cargo test --lib` on Linux for every pull request and every push to `main`. It does not
   run macOS, the desktop window or any UI.
 - **Data build** from the real upstream files. `npm run data:check` runs 85 checks: database integrity,

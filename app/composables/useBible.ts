@@ -70,7 +70,9 @@ export async function translationCommand<T = unknown>(cmd: 'translation_catalog'
   if (await inTauri()) return (await invokeFn!(cmd, args)) as T
   const route = { translation_catalog: ['GET', 'catalog'], installed_translations: ['GET', 'installed'], install_translation: ['POST', 'install'], remove_translation: ['POST', 'remove'] } as const
   const [method, path] = route[cmd]
-  return await $fetch<T>(`/api/translations/${path}`, { method, body: method === 'POST' ? args : undefined })
+  // Nitro's typed-route inference overflows the compiler on a built URL, so call $fetch through a plain signature.
+  const plainFetch = $fetch as (url: string, opts: { method: string; body?: unknown }) => Promise<unknown>
+  return (await plainFetch(`/api/translations/${path}`, { method, body: method === 'POST' ? args : undefined })) as T
 }
 
 /**
