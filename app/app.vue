@@ -2,6 +2,7 @@
 const route = useRoute()
 const { init: initTheme } = useTheme()
 const { error: userError } = useUserData()
+const bibleError = useBibleError()
 const { restore, sync } = useTabs()
 
 // Focus the landmark directly. Following "#main" would push a hash onto the route, and the watcher below would treat it as a new tab.
@@ -38,6 +39,9 @@ watch(() => route.fullPath, (p) => { if (p !== '/') sync(p) })
       <div v-if="userError" role="alert" class="flex items-start gap-3 border-l-[3px] border-t border-brand border-t-line bg-surface-2 px-4 py-2 text-sm">
         <p class="min-w-0 flex-1">{{ userError }}</p>
         <button type="button" class="shrink-0 rounded px-2 py-0.5 font-medium text-accent hover:underline" @click="userError = null">Dismiss</button>
+      </div>
+      <div v-if="bibleError" role="alert" class="border-l-[3px] border-t border-brand border-t-line bg-surface-2 px-4 py-2 text-sm">
+        <p>Bible data could not be loaded: {{ bibleError }}</p>
       </div>
       <main id="main" tabindex="-1" class="min-h-0 flex-1 border-t border-line">
         <NuxtPage />

@@ -58,7 +58,7 @@ check('ASV, YLT and Darby are NOT bundled (downloaded on demand)', count("SELECT
   let high = 0
   let medium = 0
   for (const { body } of db.prepare("SELECT body FROM commentary_entries WHERE source_id='MHC'").all()) {
-    for (const r of scanReferences(body)) r.confidence === 'high' ? high++ : medium++
+    for (const r of scanReferences(body)) { if (r.confidence === 'high') high++; else medium++ }
   }
   check('reference scanner links Matthew Henry\'s citations', high >= 30000 && medium < high / 100, `${high} high confidence, ${medium} medium`)
 }
@@ -170,7 +170,7 @@ for (const f of (await readdir(qdir)).filter((n) => n.endsWith('.sql'))) {
   check('every query file is registered in src-tauri/src/db.rs', !missing.length && !stale.length,
     [missing.length && `unregistered: ${missing}`, stale.length && `no file: ${stale}`].filter(Boolean).join('; '))
 }
-let u = null
+let u
 try {
   u = new DatabaseSync(':memory:')
   u.exec('PRAGMA foreign_keys = ON')

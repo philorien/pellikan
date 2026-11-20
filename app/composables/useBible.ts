@@ -70,7 +70,14 @@ export async function translationCommand<T = unknown>(cmd: 'translation_catalog'
   if (await inTauri()) return (await invokeFn!(cmd, args)) as T
   const route = { translation_catalog: ['GET', 'catalog'], installed_translations: ['GET', 'installed'], install_translation: ['POST', 'install'], remove_translation: ['POST', 'remove'] } as const
   const [method, path] = route[cmd]
-  return await $fetch<T>(`/api/translations/${path}`, { method, body: method === 'POST' ? args : undefined })
+  // Nitro's typed-route inference overflows the compiler on a built URL, so call $fetch through a plain signature.
+  const plainFetch = $fetch as (url: string, opts: { method: string; body?: unknown }) => Promise<unknown>
+  return (await plainFetch(`/api/translations/${path}`, { method, body: method === 'POST' ? args : undefined })) as T
+}
+
+/** Why bible.db could not be read, or null. Set by useTranslation().load(); app.vue shows it. */
+export function useBibleError() {
+  return useState<string | null>('bible-error', () => null)
 }
 
 /**
@@ -78,6 +85,7 @@ export async function translationCommand<T = unknown>(cmd: 'translation_catalog'
  * downloaded (see packs.rs). Falls back to the WEB if the chosen one is not available (for example, was removed).
  */
 export function useTranslation() {
+  const bibleError = useBibleError()
   const { prefs, setPrefs } = useUserData()
   const list = useState<TranslationInfo[]>('translations', () => [])
   const loaded = useState('translations-loaded', () => false)
@@ -87,7 +95,15 @@ export function useTranslation() {
    *  translations borrow the WEB's text there. */
   const lookupId = computed(() => (info.value?.pack ? TRANSLATION : id.value))
   async function refresh() {
-    const built = (await query<TranslationInfo>('sources')).filter((r) => r.kind === 'translation')
+    let built: TranslationInfo[]
+    try {
+      built = (await query<TranslationInfo>('sources')).filter((r) => r.kind === 'translation')
+    } catch (err) {
+      // bible.db is missing or unreadable. Report it instead of throwing, so the page still renders (app.vue shows the message).
+      bibleError.value = errorMessage(err)
+      return
+    }
+    bibleError.value = null
     let packs: TranslationInfo[] = []
     try { packs = (await translationCommand<TranslationInfo[]>('installed_translations')).map((p) => ({ ...p, pack: true })) } catch { /* no packs available in this environment */ }
     list.value = [...built, ...packs]

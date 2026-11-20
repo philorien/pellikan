@@ -44,7 +44,7 @@ Before opening a PR, run what applies to your change:
 On macOS, if `cargo` fails to link with `tapi error: malformed file`, use an older SDK:
 `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk cargo test --lib`.
 
-CI (`.github/workflows/ci.yml`) runs `npm test`, `npm run build`, a release data build, `npm run data:check` and
+CI (`.github/workflows/ci.yml`) runs `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`, a release data build, `npm run data:check` and
 `cargo test --lib` on Linux for every pull request and push to `main`. It does not run macOS, the Tauri window or any
 UI, so it does not replace using the feature yourself. **Watch out:** the Rust tests that need data return early and
 *pass* when `bible.db` is missing, so the data build step in that workflow must stay ahead of `cargo test`.
@@ -190,8 +190,8 @@ There is no installer release process yet. When there is one:
 ## Security
 
 The app reads local files and downloads data. Treat both as untrusted: validate before use, cap sizes, never build file
-paths from raw input, bind SQL parameters (never concatenate). The Tauri content security policy is currently `null`:
-tighten it before any feature handles API keys, and keep keys in the OS keychain, never in a database or `localStorage`.
+paths from raw input, bind SQL parameters (never concatenate). The Tauri content security policy (`src-tauri/tauri.conf.json`) allows only the app's own files and Tauri IPC, so
+any feature that needs another origin must widen it deliberately. Keep API keys in the OS keychain, never in a database or `localStorage`.
 
 To report a vulnerability, open a private security advisory on the repository rather than a public issue.
 

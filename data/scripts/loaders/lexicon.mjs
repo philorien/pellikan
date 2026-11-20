@@ -99,7 +99,7 @@ export function parseBdb(xml, index) {
       .replace(/<sense\b([^>]*)>/g, (_, a) => `\n${attrs(a).n ? attrs(a).n + '. ' : ''}`)
       .replace(/<\/sense>/g, '')
     const body = markupToText(cleaned)
-    const headword = markupToText(/<w\b[^>]*>([\s\S]*?)<\/w>/.exec(inner)?.[1] ?? '').replace(/[\[\]]/g, '').trim()
+    const headword = markupToText(/<w\b[^>]*>([\s\S]*?)<\/w>/.exec(inner)?.[1] ?? '').replace(/[[\]]/g, '').trim()
     if (!headword || body.length <= headword.length + 1) continue
     const li = index.get(id)
     out.push({

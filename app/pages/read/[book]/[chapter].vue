@@ -11,6 +11,7 @@ const targetVerse = computed(() => Number(route.query.v) || null)
 const { prefs, highlights, setPrefs } = useUserData()
 const lastRead = useState<string>('last-read', () => DEFAULT_PATH)
 const translation = useTranslation()
+const bibleError = useBibleError()
 await translation.load()
 
 function onTranslationChange(e: Event) {
@@ -20,9 +21,14 @@ function onTranslationChange(e: Event) {
 }
 
 const chapterCounts = useState<Record<number, number>>('chapters', () => ({}))
-if (!Object.keys(chapterCounts.value).length) {
-  const rows = await query<{ id: number; chapters: number }>('books')
-  chapterCounts.value = Object.fromEntries(rows.map((r) => [r.id, r.chapters]))
+// Skipped when the translation list already failed: bible.db is unavailable and the books query would fail the same way.
+if (!bibleError.value && !Object.keys(chapterCounts.value).length) {
+  try {
+    const rows = await query<{ id: number; chapters: number }>('books')
+    chapterCounts.value = Object.fromEntries(rows.map((r) => [r.id, r.chapters]))
+  } catch (err) {
+    bibleError.value = errorMessage(err)
+  }
 }
 const chapterCount = computed(() => (book.value ? chapterCounts.value[book.value.id] ?? 0 : 0))
 const valid = computed(() => !!book.value && Number.isInteger(chapter.value) && chapter.value >= 1 && chapter.value <= chapterCount.value)
@@ -97,7 +103,7 @@ const next = computed(() => {
 const originalVerse = computed(() => selectedVerse.value ?? data.value?.verses[0]?.verse ?? 1)
 const hlColor = (v: number) => highlights.value[verseKey(route.params.book as string, chapter.value, v)]
 
-useHead(() => ({ title: valid.value ? `${book.value!.name} ${chapter.value} · Pellikan` : 'Passage not found · Pellikan' }))
+useHead(() => ({ title: valid.value ? `${book.value!.name} ${chapter.value} · Pellikan` : `${bibleError.value ? 'Bible data not available' : 'Passage not found'} · Pellikan` }))
 </script>
 
 <template>
@@ -138,7 +144,11 @@ useHead(() => ({ title: valid.value ? `${book.value!.name} ${chapter.value} · P
         </div>
 
         <article class="min-h-0 flex-1 overflow-y-auto px-4 py-5 md:px-8 md:py-6">
-          <div v-if="!valid" class="mx-auto max-w-prose">
+          <div v-if="bibleError" class="mx-auto max-w-prose">
+            <h1 class="font-reading text-2xl">Bible data not available</h1>
+            <p class="mt-2 text-muted">The reader needs <code>bible.db</code>. See the message above. In a source checkout, run <code>npm run data</code> and reload.</p>
+          </div>
+          <div v-else-if="!valid" class="mx-auto max-w-prose">
             <h1 class="font-reading text-2xl">Passage not found</h1>
             <p class="mt-2 text-muted">
               <template v-if="book">{{ book.name }} has {{ chapterCount }} chapters.</template>

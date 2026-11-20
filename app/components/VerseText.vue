@@ -13,11 +13,12 @@ const emit = defineEmits<{ note: [seq: number] }>()
 const lines = computed(() => {
   // Split on "\n" so poetry lines can be laid out as blocks.
   const out: Token[][] = [[]]
+  const last = () => out[out.length - 1]!
   for (const t of props.tokens) {
-    if (t[2] & 2) { out[out.length - 1].push(t); continue }
+    if (t[2] & 2) { last().push(t); continue }
     t[0].split('\n').forEach((p, i) => {
       if (i > 0) out.push([])
-      if (p) out[out.length - 1].push([p, null, t[2]])
+      if (p) last().push([p, null, t[2]])
     })
   }
   return out
