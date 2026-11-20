@@ -276,7 +276,9 @@ Measured details are in [DATA_SOURCES.md](DATA_SOURCES.md). The ones that matter
 - **Thayer's is OCR-derived** and the Treasury's references are parsed from its shorthand. Both can contain errors.
 - **The WEB numbers the end of Romans differently** from the KJV (the doxology sits at Romans 14:24-26).
 - **`bible.db` is large**, about 280 MB without the ESV. It compresses in an installer.
-- **The Tauri content security policy is `null`.** Tighten it before adding any feature that handles API keys.
+- **The Tauri content security policy** allows only the app's own files and Tauri IPC. It was tested against the
+  production build in a browser with the same policy (app, import worker and inline styles work; inline scripts and
+  outside requests are blocked), but not yet in the packaged desktop window, where Tauri adds its own script hashes.
 - Hebrew, Greek and English verse numbers are mapped, with a handful of documented exceptions.
 
 ## Roadmap

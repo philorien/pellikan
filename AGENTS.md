@@ -97,8 +97,9 @@ before the UI shows anything; build it with `npm run data`.
   older macOS web views reject the whole script.
 - **English words are intentionally not clickable.** WEB Strong's tags on English words are unreliable in the OT
   (measured, see DATA_SOURCES.md). Word study goes through the Hebrew and Greek words.
-- **Secrets:** AI provider API keys, when added, go in the OS keychain, never a database or `localStorage`. Tighten
-  the Tauri CSP (currently `null`) before any AI feature ships.
+- **Secrets:** AI provider API keys, when added, go in the OS keychain, never a database or `localStorage`. The Tauri CSP
+  in `tauri.conf.json` has no external origins (`connect-src` is self and IPC only). An AI feature must add its provider
+  origin there, or better, make the call from Rust. Downloads (packs) already happen in Rust, not the web view.
 - **Licensing is a hard constraint.** `data/sources/` and `data/build/` are git-ignored on purpose. Never commit the
   ESV epub or a database that contains it. Do not add a data source without recording its license in
   DATA_SOURCES.md. The built DB includes CC BY-SA (MorphGNT) material.
