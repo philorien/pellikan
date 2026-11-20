@@ -162,3 +162,33 @@ test('an interrupted import is marked failed and a finished one is not', () => {
   runUserQuery('document_remove', { id: stuck })
   runUserQuery('document_remove', { id: done })
 })
+
+test('passages that cite a verse: one row each, strongest first, finished books only', () => {
+  const add = (title, sha, chunks, finish) => {
+    const [{ id }] = runUserQuery('document_add', { title, author: null, format: 'md', original_name: `${sha}.md`, sha256: sha })
+    const json = JSON.stringify(chunks)
+    runUserBatch([{ name: 'doc_chunks_add', params: { document: id, chunks: json } }, { name: 'doc_refs_add', params: { document: id, chunks: json } }])
+    if (finish) runUserQuery('document_finish', { id, chars: 1 })
+    return id
+  }
+  const rom = (from, to, confidence) => ({ book: 45, chapter: 8, from, to, confidence })
+  const a = add('Romans notes', 'cit-a', [
+    { seq: 0, heading: 'Romans 8', loc: null, text: 'Works together.', refs: [rom(28, 28, 'high'), rom(1, 39, 'medium')] }, // cites the verse twice
+    { seq: 1, heading: null, loc: 'p. 2', text: 'The whole chapter.', refs: [rom(1, 39, 'medium')] },
+    { seq: 2, heading: null, loc: null, text: 'Elsewhere.', refs: [{ book: 43, chapter: 3, from: 16, to: 16, confidence: 'high' }] },
+  ], true)
+  const unfinished = add('Still importing', 'cit-b', [{ seq: 0, heading: null, loc: null, text: 'Half done.', refs: [rom(28, 28, 'high')] }], false)
+
+  const at = (chapter, verse) => runUserQuery('doc_refs_for_verse', { book: 45, chapter, verse, limit: 50 }).map((r) => `${r.text}|${r.confidence}`)
+  assert.deepEqual(at(8, 28), ['Works together.|high', 'The whole chapter.|medium'])
+  assert.deepEqual(at(8, 5), ['Works together.|medium', 'The whole chapter.|medium']) // only the chapter-wide references reach verse 5
+  assert.deepEqual(at(9, 28), [])
+  assert.equal(runUserQuery('doc_refs_for_verse', { book: 45, chapter: 8, verse: 28, limit: 1 }).length, 1)
+  const [row] = runUserQuery('doc_refs_for_verse', { book: 45, chapter: 8, verse: 28, limit: 1 })
+  assert.deepEqual({ title: row.title, heading: row.heading, document_id: row.document_id }, { title: 'Romans notes', heading: 'Romans 8', document_id: a })
+
+  runUserQuery('document_finish', { id: unfinished, chars: 1 })
+  assert.equal(at(8, 28).length, 3) // now the second book counts
+  runUserQuery('document_remove', { id: a })
+  runUserQuery('document_remove', { id: unfinished })
+})

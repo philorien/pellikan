@@ -56,7 +56,7 @@ const { data, pending, error } = await useAsyncData(
 const selectedVerse = ref<number | null>(null)
 const selectedNote = ref<{ kind: string; text: string } | null>(null)
 const pickedWord = ref<Word | null>(null)
-const guideTab = ref<'overview' | 'xref' | 'word'>('overview')
+const guideTab = ref<'overview' | 'xref' | 'word' | 'library'>('overview')
 
 watch(() => [route.params.book, route.params.chapter], () => {
   selectedVerse.value = targetVerse.value; selectedNote.value = null; pickedWord.value = null

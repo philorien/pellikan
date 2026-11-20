@@ -49,6 +49,7 @@ macro_rules! uq {
 pub const USER_QUERIES: &[(&str, &str)] = &[
     uq!("doc_chunks_add"),
     uq!("doc_refs_add"),
+    uq!("doc_refs_for_verse"),
     uq!("document_add"),
     uq!("document_by_hash"),
     uq!("document_fail"),
@@ -382,6 +383,41 @@ mod tests {
             assert_eq!(c.query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get::<_, i64>(0)).unwrap(), 0, "{table}");
         }
         assert_eq!(c.query_row("SELECT count(*) FROM doc_chunks_fts WHERE doc_chunks_fts MATCH 'together'", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    }
+
+    #[test]
+    fn passages_that_cite_a_verse_come_one_per_chunk_strongest_first_and_only_from_finished_books() {
+        let mut c = user_db();
+        let mut add = |title: &str, sha: &str, chunks: Value, finish: bool| -> i64 {
+            let doc = run_user(&c, "document_add", &params(json!({"title": title, "author": null, "format": "md", "original_name": format!("{sha}.md"), "sha256": sha}))).unwrap();
+            let id = doc[0]["id"].as_i64().unwrap();
+            let op = |name: &str| Op { name: name.into(), params: params(json!({"document": id, "chunks": chunks.to_string()})) };
+            run_user_batch(&mut c, &[op("doc_chunks_add"), op("doc_refs_add")]).unwrap();
+            if finish {
+                run_user(&c, "document_finish", &params(json!({"id": id, "chars": 1}))).unwrap();
+            }
+            id
+        };
+        let rom = |from: i64, to: i64, confidence: &str| json!({"book": 45, "chapter": 8, "from": from, "to": to, "confidence": confidence});
+        add("Romans notes", "cit-a", json!([
+            {"seq": 0, "heading": "Romans 8", "loc": null, "text": "Works together.", "refs": [rom(28, 28, "high"), rom(1, 39, "medium")]},
+            {"seq": 1, "heading": null, "loc": "p. 2", "text": "The whole chapter.", "refs": [rom(1, 39, "medium")]},
+            {"seq": 2, "heading": null, "loc": null, "text": "Elsewhere.", "refs": [{"book": 43, "chapter": 3, "from": 16, "to": 16, "confidence": "high"}]},
+        ]), true);
+        let unfinished = add("Still importing", "cit-b", json!([{"seq": 0, "heading": null, "loc": null, "text": "Half done.", "refs": [rom(28, 28, "high")]}]), false);
+
+        let at = |c: &Connection, chapter: i64, verse: i64| -> Vec<String> {
+            run_user(c, "doc_refs_for_verse", &params(json!({"book": 45, "chapter": chapter, "verse": verse, "limit": 50})))
+                .unwrap().iter().map(|r| format!("{}|{}", r["text"].as_str().unwrap(), r["confidence"].as_str().unwrap())).collect()
+        };
+        assert_eq!(at(&c, 8, 28), vec!["Works together.|high", "The whole chapter.|medium"]);
+        assert_eq!(at(&c, 8, 5), vec!["Works together.|medium", "The whole chapter.|medium"]); // only the chapter-wide references reach verse 5
+        assert!(at(&c, 9, 28).is_empty());
+        let one = run_user(&c, "doc_refs_for_verse", &params(json!({"book": 45, "chapter": 8, "verse": 28, "limit": 1}))).unwrap();
+        assert_eq!((one.len(), one[0]["title"].as_str(), one[0]["heading"].as_str()), (1, Some("Romans notes"), Some("Romans 8")));
+
+        run_user(&c, "document_finish", &params(json!({"id": unfinished, "chars": 1}))).unwrap();
+        assert_eq!(at(&c, 8, 28).len(), 3); // now the second book counts
     }
 
     #[test]

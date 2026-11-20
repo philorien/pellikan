@@ -17,13 +17,14 @@ const props = defineProps<{
   footnote: { kind: string; text: string } | null
   word: Word | null
 }>()
-const tab = defineModel<'overview' | 'xref' | 'word'>('tab', { default: 'overview' })
+const tab = defineModel<'overview' | 'xref' | 'word' | 'library'>('tab', { default: 'overview' })
 const emit = defineEmits<{ goto: [verse: number] }>()
 
 const tabs = [
   { id: 'overview', label: 'Overview' },
-  { id: 'xref', label: 'Cross References' },
+  { id: 'xref', label: 'Cross-refs' },
   { id: 'word', label: 'Word Study' },
+  { id: 'library', label: 'Books' },
 ] as const
 
 const sections = computed(() => props.headings.filter((h) => h.kind === 'ms'))
@@ -42,10 +43,10 @@ const footnotes = computed(() => props.notes.filter((n) => n.kind !== 'xref').le
 
 <template>
   <Panel title="Study Guide" :icon="GraduationCap" collapsible>
-    <div class="-mt-1 mb-3 flex gap-4 border-b border-line text-sm" role="tablist">
+    <div class="-mt-1 mb-3 flex gap-4 overflow-x-auto border-b border-line text-sm" role="tablist">
       <button
         v-for="t in tabs" :key="t.id" type="button" role="tab" :aria-selected="tab === t.id"
-        class="-mb-px border-b-2 pb-2"
+        class="-mb-px shrink-0 whitespace-nowrap border-b-2 pb-2"
         :class="tab === t.id ? 'border-accent font-medium text-fg' : 'border-transparent text-muted hover:text-fg'"
         @click="tab = t.id"
       >{{ t.label }}</button>
@@ -84,6 +85,8 @@ const footnotes = computed(() => props.notes.filter((n) => n.kind !== 'xref').le
         </li>
       </ul>
     </div>
+
+    <CitingPassages v-else-if="tab === 'library'" :book-id="bookId" :chapter="chapter" :verse="verse" :book-name="bookName" />
 
     <WordStudy v-else :word="word" />
   </Panel>

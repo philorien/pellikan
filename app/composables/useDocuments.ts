@@ -24,6 +24,25 @@ export interface DocumentRow {
   refs: number
 }
 
+export interface CitingPassage {
+  chunk_id: number
+  document_id: number
+  title: string
+  author: string | null
+  heading: string | null
+  loc: string | null
+  text: string
+  confidence: 'high' | 'medium'
+}
+
+/** How many passages the reader asks for at most. A verse like John 3:16 can be cited hundreds of times in a library. */
+export const CITING_LIMIT = 50
+
+/** Passages in the user's imported books that cite one verse, strongest matches first. */
+export function citingPassages(book: number, chapter: number, verse: number): Promise<CitingPassage[]> {
+  return userQuery<CitingPassage>('doc_refs_for_verse', { book, chapter, verse, limit: CITING_LIMIT })
+}
+
 /** Chunks per call to user.db. Each call carries the batch as one JSON value (see data/queries/user/doc_chunks_add.sql). */
 export const IMPORT_BATCH = 150
 
