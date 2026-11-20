@@ -79,7 +79,12 @@ export async function translationCommand<T = unknown>(cmd: 'translation_catalog'
  * The reader's current translation. The list is the translations built into bible.db plus any the user has
  * downloaded (see packs.rs). Falls back to the WEB if the chosen one is not available (for example, was removed).
  */
+export function useBibleError() {
+  return useState<string | null>('bible-error', () => null)
+}
+
 export function useTranslation() {
+  const bibleError = useBibleError()
   const { prefs, setPrefs } = useUserData()
   const list = useState<TranslationInfo[]>('translations', () => [])
   const loaded = useState('translations-loaded', () => false)
@@ -89,7 +94,15 @@ export function useTranslation() {
    *  translations borrow the WEB's text there. */
   const lookupId = computed(() => (info.value?.pack ? TRANSLATION : id.value))
   async function refresh() {
-    const built = (await query<TranslationInfo>('sources')).filter((r) => r.kind === 'translation')
+    let built: TranslationInfo[]
+    try {
+      built = (await query<TranslationInfo>('sources')).filter((r) => r.kind === 'translation')
+    } catch (err) {
+      // bible.db is missing or unreadable. Report it instead of throwing, so the page still renders (app.vue shows the message).
+      bibleError.value = errorMessage(err)
+      return
+    }
+    bibleError.value = null
     let packs: TranslationInfo[] = []
     try { packs = (await translationCommand<TranslationInfo[]>('installed_translations')).map((p) => ({ ...p, pack: true })) } catch { /* no packs available in this environment */ }
     list.value = [...built, ...packs]
