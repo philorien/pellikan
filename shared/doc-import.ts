@@ -101,6 +101,7 @@ type Block = { kind: 'heading'; text: string; level: number } | { kind: 'para'; 
 function normalize(raw: string): string {
   let text = raw.replace(/^﻿/, '').replace(/\r\n?/g, '\n').replace(/\f/g, '\n\n')
   // Zero-width and soft characters that publishers leave in, and that would break "Rom​8:28".
+  // eslint-disable-next-line no-misleading-character-class -- the joiner is meant to be removed as a lone character
   text = text.replace(/[​‌‍⁠­]/g, '')
   return text.replace(/\u0000/g, '')
 }
@@ -115,8 +116,8 @@ function stripInline(s: string): string {
     .replace(/`([^`\n]+)`/g, '$1')
   // Bold and italic: a marker pair around non-space text. Underscores inside a word (snake_case) are not markers.
   out = out.replace(/(\*\*|__)(\S(?:[^\n]*?\S)?)\1/g, '$2')
-  out = out.replace(/(^|[\s(\[])\*(\S(?:[^*\n]*?\S)?)\*(?=$|[\s.,;:!?)\]])/g, '$1$2')
-  out = out.replace(/(^|[\s(\[])_(\S(?:[^_\n]*?\S)?)_(?=$|[\s.,;:!?)\]])/g, '$1$2')
+  out = out.replace(/(^|[\s([])\*(\S(?:[^*\n]*?\S)?)\*(?=$|[\s.,;:!?)\]])/g, '$1$2')
+  out = out.replace(/(^|[\s([])_(\S(?:[^_\n]*?\S)?)_(?=$|[\s.,;:!?)\]])/g, '$1$2')
   return out
 }
 

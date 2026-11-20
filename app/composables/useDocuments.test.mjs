@@ -92,7 +92,7 @@ test('if saving fails part way, the half-imported document is removed and the er
 })
 
 test('if even the clean-up fails, the original error is still the one shown', async () => {
-  failOn = (name, n) => name === 'document_finish' || name === 'document_remove'
+  failOn = (name) => name === 'document_finish' || name === 'document_remove'
   const docs = useDocuments()
   assert.equal(await docs.importFile(file('a.txt', 'Some text.')), false)
   assert.match(docs.error.value, /a\.txt could not be imported: document_finish failed/)
@@ -199,7 +199,7 @@ test('a Worker that crashes falls back the same way, and one that answers is use
     assert.equal((await extractOffThread('Some text.\n', 'txt', 'a.txt', 5000)).chunks.length, 1)
     assert.equal(workers[0].terminated, true)
   })
-  await withWorker((w, msg) => queueMicrotask(() => w.onmessage({ data: { ok: true, doc: { title: 'from worker', author: null, chunks: [], chars: 0 } } })), async (workers) => {
+  await withWorker((w) => queueMicrotask(() => w.onmessage({ data: { ok: true, doc: { title: 'from worker', author: null, chunks: [], chars: 0 } } })), async (workers) => {
     assert.equal((await extractOffThread('Some text.\n', 'txt', 'a.txt', 5000)).title, 'from worker')
     assert.equal(workers[0].terminated, true)
   })

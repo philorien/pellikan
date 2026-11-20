@@ -18,6 +18,7 @@ npm run dev           # browser at localhost:3000, queries served by server/api/
 npm run tauri:dev     # desktop app (needs Rust and Xcode CLT on macOS)
 npm test              # node:test unit tests for data loaders and shared/
 npm run typecheck     # nuxt prepare + vue-tsc over app/ and server/ (CI runs it)
+npm run lint          # ESLint with Vue and accessibility rules (CI runs it; warnings do not fail)
 npm run data:check    # database integrity checks
 npm run data:fetch -- --packs && npm run data:packs   # build downloadable translation packs into data/build/packs/
 npm run build         # static site (nuxt generate)
@@ -39,7 +40,7 @@ before the UI shows anything; build it with `npm run data`.
 - `data/scripts/` fetch, build, check, `translations.mjs` (translation catalog), and `loaders/`: USFM (WEB, BSB, KJV),
   OSHB, MorphGNT, optional ESV epub, `sword.mjs` (CrossWire module reader), `lexicon`, `dictionary`, `commentary`,
   `crossrefs`, `markup`.
-- `.github/workflows/ci.yml` CI: `npm run typecheck`, `npm test`, `npm run build`, release data build, `data:check`, `cargo test --lib` (Linux).
+- `.github/workflows/ci.yml` CI: `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`, release data build, `data:check`, `cargo test --lib` (Linux).
 - `server/` dev-only API routes (`/api/query/*`, `/api/user/*`, `/api/translations/*`) and DB/pack helpers.
 - `src-tauri/src/` `db.rs`, `lib.rs`, `main.rs`: opens both DBs, exposes `query` (bible.db, read-only) and
   `user_query` / `user_batch` (user.db).

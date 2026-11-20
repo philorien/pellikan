@@ -23,7 +23,8 @@
     "data:check": "node --disable-warning=ExperimentalWarning data/scripts/check-db.mjs",
     "data": "npm run data:fetch && npm run data:build && npm run data:check",
     "test": "node --disable-warning=ExperimentalWarning --test \"data/scripts/**/*.test.mjs\" \"shared/**/*.test.mjs\" \"server/**/*.test.mjs\" \"app/**/*.test.mjs\"",
-    "typecheck": "nuxt prepare && vue-tsc --noEmit"
+    "typecheck": "nuxt prepare && vue-tsc --noEmit",
+    "lint": "eslint ."
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",
@@ -32,12 +33,18 @@
     "vue": "^3.5.44"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "^2.12.4",
     "@types/node": "^26.6.6",
+    "eslint": "^10.15.0",
+    "eslint-plugin-vue": "^10.12.1",
+    "eslint-plugin-vuejs-accessibility": "^2.6.3",
     "fflate": "^0.8.3",
+    "globals": "^17.14.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.0",
+    "typescript-eslint": "^8.73.0",
     "vue-tsc": "^3.3.14"
   }
 }

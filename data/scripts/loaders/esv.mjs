@@ -87,7 +87,6 @@ export function parseEsvTextFile(html, acc) {
   let headingId = null
   let pendingHeadings = [] // waiting for the next verse to start
   let pendingMarkers = [] // footnotes found inside headings; attached to the next verse
-  let section = -1 // 0 = main, skip anything else
 
   const verseOf = (key) => {
     let v = acc.get(key)

@@ -44,7 +44,7 @@ Before opening a PR, run what applies to your change:
 On macOS, if `cargo` fails to link with `tapi error: malformed file`, use an older SDK:
 `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk cargo test --lib`.
 
-CI (`.github/workflows/ci.yml`) runs `npm run typecheck`, `npm test`, `npm run build`, a release data build, `npm run data:check` and
+CI (`.github/workflows/ci.yml`) runs `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`, a release data build, `npm run data:check` and
 `cargo test --lib` on Linux for every pull request and push to `main`. It does not run macOS, the Tauri window or any
 UI, so it does not replace using the feature yourself. **Watch out:** the Rust tests that need data return early and
 *pass* when `bible.db` is missing, so the data build step in that workflow must stay ahead of `cargo test`.

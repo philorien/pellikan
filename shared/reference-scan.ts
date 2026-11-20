@@ -303,7 +303,6 @@ function afterBook(text: string, found: BookMatch, t: AliasTable, out: ScannedRe
       if (countFollows(text, pos)) return false
       if (chapterCount(book.id) === 1) {
         // Jude 5, Philemon 6: the book has one chapter, so the number is a verse.
-        chapter = 1
         span = verseSpan(text, pos - arabic[0].length, book.id, 1)
         if (!span) return false
         push(found.start, 1, span, 'verse', 'medium')
