@@ -41,19 +41,19 @@ const date = (ms: number) => new Date(ms).toLocaleDateString(undefined, { year: 
   <section class="mt-10" aria-labelledby="your-books">
     <h2 id="your-books" class="font-reading text-2xl font-semibold">Your books</h2>
     <p class="mt-2 text-muted">
-      Import your own notes and books as plain text or Markdown. Pellikan finds the Scripture references in them, so
+      Import your own notes and books as EPUB, PDF, Word (.docx), plain text or Markdown. Pellikan finds the Scripture references in them, so
       they can show up beside the verses they cite. Files stay on this computer.
     </p>
 
     <div class="mt-4">
-      <input ref="picker" id="import-books" type="file" class="peer sr-only" multiple accept=".txt,.text,.md,.markdown,text/plain,text/markdown" :disabled="!!importing" @change="picked">
+      <input ref="picker" id="import-books" type="file" class="peer sr-only" multiple accept=".txt,.text,.md,.markdown,.epub,.docx,.pdf,text/plain,text/markdown,application/epub+zip,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" :disabled="!!importing" @change="picked">
       <label
         for="import-books"
         class="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-fg peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent peer-disabled:cursor-not-allowed peer-disabled:opacity-50"
       >
         <FileUp class="size-4" aria-hidden="true" /> Import a book
       </label>
-      <span class="ml-3 text-sm text-faint">.txt or .md, up to 25 MB</span>
+      <span class="ml-3 text-sm text-faint">EPUB, PDF, DOCX, TXT or MD. Up to 100 MB for EPUB and PDF, 50 MB for DOCX, 25 MB for text.</span>
     </div>
 
     <div aria-live="polite" class="mt-3 min-h-[1.5rem] text-sm">

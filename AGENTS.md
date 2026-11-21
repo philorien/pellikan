@@ -65,8 +65,12 @@ before the UI shows anything; build it with `npm run data`.
   Worker `app/workers/extract.worker.ts`) and the result is stored with the `doc*` statements in `data/queries/user/`:
   document row as `processing`, chunks and references in batches (one JSON value per batch, see `doc_chunks_add.sql`),
   then `ready`. A failure removes the document, so a half-imported book is never visible. Rust and the dev server know
-  nothing about file formats: a new format is a new extractor that returns an `ImportedDocument`, not new storage.
-  Imported text is always shown as text, never as HTML. Imported books stay in `user.db` and are never part of
+  nothing about file formats: a new format is a new extractor that returns headings and paragraphs
+  (`shared/doc-blocks.ts`; see `doc-epub.ts`, `doc-docx.ts`, `doc-pdf.ts`), not new storage. Extractors run in a Worker,
+  which has no `DOMParser`, so XML and HTML go through `shared/markup.ts`. ZIPs (EPUB, DOCX) are read only through
+  `shared/zip.ts`, which caps every entry and the total before inflating (zip bombs). pdf.js runs in the Worker's own
+  thread and announces itself with a stray `ready` message, which `extractOffThread` ignores: keep that filter. pdf.js
+  needs a plain `Uint8Array`, not a Node `Buffer`. Imported text is always shown as text, never as HTML. Imported books stay in `user.db` and are never part of
   `bible.db`, a pack, or the repo.
 - **Changing the `user.db` schema:** bump the version in `user.sql`, add `data/schema/migrations/user-N.sql`, and do the
   upgrade in both `migrate_user` (`db.rs`) and `migrateUser` (`userDb.ts`) with tests for both. `user.sql` runs on every

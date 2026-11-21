@@ -83,11 +83,11 @@ Books a user imports are theirs: they go in `user.db` on that computer and are n
 pack, a release, or this repository. Do not commit a sample book you do not have the right to share. The tests build
 their text in code.
 
-Plain text and Markdown import works today. The flow is in `app/composables/useDocuments.ts`: extraction runs in the web
+Text, Markdown, EPUB, DOCX and PDF import work today. The flow is in `app/composables/useDocuments.ts`: extraction runs in the web
 view (`shared/doc-import.ts`, in a Worker), Scripture references are found with `scanReferences`
 (`shared/reference-scan.ts`), and the result is stored with the `doc*` statements in `data/queries/user/`. A failure
 removes the document, so a half-imported book is never visible. Rust and the dev server know nothing about file
-formats: a new format (EPUB, DOCX, PDF) is a new extractor that returns an `ImportedDocument`, not new storage. Imported
+formats: a new format is a new extractor that returns headings and paragraphs (`shared/doc-blocks.ts`), not new storage. Imported
 text is always rendered as text, never as HTML.
 
 ## Changing the `user.db` schema
@@ -201,5 +201,5 @@ Good first jobs, roughly in order of value:
 
 1. Launch the Tauri window on macOS and fix what breaks.
 2. The accessibility fixes listed in [ACCESSIBILITY.md](ACCESSIBILITY.md#known-gaps).
-3. Importers for EPUB, DOCX and PDF (`shared/doc-import.ts` returns an `ImportedDocument`; storage already exists).
+3. Importer improvements: PDF layout (columns, footnotes), DOCX footnotes, OCR for scanned PDFs, or a new format.
 4. Formatting config: ESLint is set up, but there is no formatter, and adding one would reformat most of the code.

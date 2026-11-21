@@ -114,14 +114,18 @@ test('the same file again is refused, unless the earlier attempt never finished'
 
 test('files it cannot import are refused before anything is stored', async () => {
   const docs = useDocuments()
-  assert.equal(await docs.importFile(file('book.pdf', '%PDF-')), false)
-  assert.match(docs.error.value, /imports \.txt and \.md files so far/)
+  assert.equal(await docs.importFile(file('book.mobi', 'x')), false)
+  assert.match(docs.error.value, /imports \.txt, \.md, \.epub, \.docx and \.pdf files\./)
+  assert.equal(await docs.importFile(file('old.doc', 'x')), false)
+  assert.match(docs.error.value, /save it as \.docx/)
 
   const big = file('big.txt', 'x')
   Object.defineProperty(big, 'size', { value: MAX_IMPORT_BYTES + 1 })
   assert.equal(await docs.importFile(big), false)
   assert.match(docs.error.value, /larger than 25 MB/)
 
+  assert.equal(await docs.importFile(file('scan.pdf', 'not really a pdf')), false)
+  assert.match(docs.error.value, /scan\.pdf could not be imported: This is not a valid PDF/)
   assert.equal(await docs.importFile(file('empty.md', '  \n')), false)
   assert.match(docs.error.value, /empty\.md could not be imported: The file is empty/)
   assert.equal(await docs.importFile(file('bad.txt', 'café ����������')), false)
@@ -215,6 +219,16 @@ test('a late answer after the timeout is ignored, and the timeout is generous', 
     await new Promise((r) => setTimeout(r, 100))
   })
   assert.ok(EXTRACT_TIMEOUT_MS >= 10_000)
+})
+
+test('a message that is not an answer (pdf.js announces itself in the Worker it is loaded into) is ignored', async () => {
+  await withWorker((w) => queueMicrotask(() => {
+    w.onmessage({ data: { sourceName: 'worker', targetName: 'main', action: 'ready', data: {} } })
+    w.onmessage({ data: null })
+    w.onmessage({ data: { ok: true, doc: { title: 'the real answer', author: null, chunks: [], chars: 0 } } })
+  }), async () => {
+    assert.equal((await extractOffThread(new Uint8Array([1, 2, 3]), 'pdf', 'a.pdf', 5000)).title, 'the real answer')
+  })
 })
 
 test('a Worker that crashes does not stop an import, and nothing is left "importing"', async () => {
