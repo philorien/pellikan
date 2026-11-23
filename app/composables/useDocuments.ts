@@ -1,13 +1,13 @@
 // Imported books: importing a file, listing what is imported, removing it.
 //
-// The text is extracted here in the web view (shared/doc-import.ts, in a Worker) and stored in user.db through the
-// named statements in data/queries/user/. Rust and the dev server run those statements and know nothing about file
-// formats, so adding EPUB, DOCX or PDF later means a new extractor, not new storage.
+// The text is extracted here in the web view (shared/doc-import.ts, in a Worker; text, Markdown, EPUB, DOCX and PDF)
+// and stored in user.db through the named statements in data/queries/user/. Rust and the dev server run those
+// statements and know nothing about file formats, so a new format is a new extractor, not new storage.
 //
 // An import is: document row ('processing'), chunks with their references in batches, then 'ready'. If anything fails
 // the document is removed again, so a half-imported book never shows up in the library or in a reference lookup.
 
-import { extractDocument, formatOf, MAX_IMPORT_BYTES } from '../../shared/doc-import.ts'
+import { extractFile, formatOf, maxBytesFor } from '../../shared/doc-import.ts'
 import type { ImportedDocument, ImportFormat } from '../../shared/doc-import.ts'
 
 export interface DocumentRow {
@@ -75,20 +75,33 @@ export async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
 }
 
 /**
- * How long to wait for the Worker before giving up on it. Extraction runs at several MB a second (a 1.8 MB text takes
- * well under a second), so a Worker that has not answered after this long is stuck, not slow.
+ * How long to wait for the Worker before giving up on it. Text extraction runs at several MB a second (a 1.8 MB text
+ * takes well under a second), so a Worker that has not answered after this long is stuck, not slow.
  */
 export const EXTRACT_TIMEOUT_MS = 30_000
 
 /**
+ * The wait for a given file. Text gets the base. EPUB, DOCX and PDF are slower and much bigger on disk than their text
+ * (a PDF is read page by page), so they get more time per megabyte, up to ten minutes. Giving up early would not make
+ * anything faster: the fallback does the same work on the main thread, where it freezes the window. For EPUB and DOCX
+ * there is no fallback after a timeout at all (see `extractOffThread`).
+ */
+export function extractTimeoutFor(format: ImportFormat, bytes: number): number {
+  if (format === 'txt' || format === 'md') return EXTRACT_TIMEOUT_MS
+  return Math.min(600_000, EXTRACT_TIMEOUT_MS + Math.ceil(bytes / 1_048_576) * 10_000)
+}
+
+/**
  * Extracts in a Worker. If no Worker can be started, if it fails to load or crashes, or if it never answers, extracts on
  * this thread instead, so a Worker problem costs a brief freeze and not the ability to import (or a picker that stays
- * disabled for the rest of the session).
+ * disabled for the rest of the session). The exception is a timeout on a ZIP-based format (EPUB, DOCX): that is a file
+ * keeping the Worker busy, and repeating the work on the main thread would freeze the window for as long, so it is an
+ * error instead.
  */
-export function extractOffThread(text: string, format: ImportFormat, name: string, timeoutMs = EXTRACT_TIMEOUT_MS): Promise<ImportedDocument> {
-  const inline = () => {
-    try { return Promise.resolve(extractDocument(text, format, name)) } catch (err) { return Promise.reject(err) }
-  }
+export function extractOffThread(input: string | Uint8Array, format: ImportFormat, name: string, timeoutMs = EXTRACT_TIMEOUT_MS): Promise<ImportedDocument> {
+  // Text and Markdown go in as decoded text, the other formats as bytes. The bytes are copied to the Worker, not
+  // moved, so the fallback below still has them.
+  const inline = () => extractFile(input, format, name)
   return new Promise((resolve, reject) => {
     let worker: Worker
     try {
@@ -105,8 +118,19 @@ export function extractOffThread(text: string, format: ImportFormat, name: strin
       worker.terminate()
       inline().then(resolve, reject)
     }
-    const timer = setTimeout(fallBack, timeoutMs)
+    const zipBased = format === 'epub' || format === 'docx'
+    const timeOut = () => {
+      if (!zipBased) return fallBack()
+      if (settled) return
+      settled = true
+      worker.terminate()
+      reject(new Error('This file took too long to unpack, so it was not imported. It may be damaged or not a real book.'))
+    }
+    const timer = setTimeout(timeOut, timeoutMs)
     worker.onmessage = (e: MessageEvent<{ ok: true; doc: ImportedDocument } | { ok: false; error: string }>) => {
+      // Only our own answer counts. pdf.js attaches itself to the Worker it is loaded into and posts a "ready" message
+      // of its own, which is not a result and must not be taken for one.
+      if (typeof (e.data as { ok?: unknown } | null)?.ok !== 'boolean') return
       if (settled) return
       settled = true
       clearTimeout(timer)
@@ -115,7 +139,7 @@ export function extractOffThread(text: string, format: ImportFormat, name: strin
       else reject(new Error(e.data.error))
     }
     worker.onerror = fallBack
-    worker.postMessage({ text, format, name })
+    worker.postMessage({ input, format, name })
   })
 }
 
@@ -159,8 +183,12 @@ export function useDocuments() {
     }
 
     const format = formatOf(file.name)
-    if (!format) return fail(`${file.name}: Pellikan imports .txt and .md files so far. EPUB, DOCX and PDF are planned.`)
-    if (file.size > MAX_IMPORT_BYTES) return fail(`${file.name} is larger than ${MAX_IMPORT_BYTES / 1024 / 1024} MB, which is too big for a text file. Is it the right one?`)
+    if (!format) {
+      const hint = /\.doc$/i.test(file.name) ? ' Open it in Word and save it as .docx.' : ''
+      return fail(`${file.name}: Pellikan imports .txt, .md, .epub, .docx and .pdf files.${hint}`)
+    }
+    const limit = maxBytesFor(format)
+    if (file.size > limit) return fail(`${file.name} is larger than ${limit / 1024 / 1024} MB, which is too big for a ${format.toUpperCase()} book. Is it the right one?`)
 
     importing.value = { name: file.name, step: 'Reading the file', progress: 0 }
     let id: number | null = null
@@ -175,7 +203,8 @@ export function useDocuments() {
       }
 
       importing.value = { name: file.name, step: 'Finding Scripture references', progress: 0.05 }
-      const doc = await extractOffThread(new TextDecoder('utf-8').decode(bytes), format, file.name)
+      const asText = format === 'txt' || format === 'md'
+      const doc = await extractOffThread(asText ? new TextDecoder('utf-8').decode(bytes) : new Uint8Array(bytes), format, file.name, extractTimeoutFor(format, bytes.byteLength))
 
       const [row] = await userQuery<{ id: number }>('document_add', { title: doc.title, author: doc.author, format, original_name: file.name, sha256 })
       id = row!.id

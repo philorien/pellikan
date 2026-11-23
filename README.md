@@ -69,12 +69,12 @@ The biography above is summarized from the linked Wikipedia article, which marks
 - **Bookmarks.** Mark the selected verse (or the start of a chapter) from the reader, add a label, and see them all on
   the Bookmarks page.
 - **Full-text search** across the selected translation, and across your own books (a switch on the Search page).
-- **Your own books, as plain text or Markdown.** Import a `.txt` or `.md` file on the Library page. Pellikan splits it
+- **Your own books: EPUB, PDF, DOCX, plain text or Markdown.** Import a file on the Library page. Pellikan splits it
   into passages and finds the Scripture references in it ("Rom. 8:28", "1 Cor 13:4, 7", "Rom. viii. 28"). Files are
   read on your computer and the text is stored in `user.db`; the original file is not kept. The **Books** tab of the
   Study Guide lists the passages in your books that cite the selected verse.
 
-Not built yet: importing EPUB, PDF and DOCX, AI-assisted search, signed installers. See the [roadmap](#roadmap).
+Not built yet: AI-assisted search, signed installers. See the [roadmap](#roadmap).
 
 ## Install from GitHub
 
@@ -252,8 +252,9 @@ Checked, with the commands that check it:
 - **Data build** from the real upstream files. `npm run data:check` runs 85 checks: database integrity,
   verse counts, Hebrew and English chapters ending on the same verse, search ranking, every query preparing, and
   spot checks on the lexicons, commentary and cross-references.
-- **130 Node unit tests** (`npm test`) covering the parsers and loaders, the Scripture reference scanner, text and
+- **161 Node unit tests** (`npm test`) covering the parsers and loaders, the Scripture reference scanner, text and
   Markdown import (extraction, chunking, and the import flow including a failed save removing the half-imported book),
+  EPUB, DOCX and PDF extraction (on files built in the tests, including DRM, damaged and zip-bomb cases),
   the dev server's query runners, and the
   conversions that move older `localStorage` data into `user.db`.
 - **26 Rust tests** (`cargo test --lib`, with `bible.db` built), including notes, highlights, bookmarks and settings round trips on `user.db`, the
@@ -266,7 +267,10 @@ Checked, with the commands that check it:
   translation pack from the real `packs` release. Also notes, highlights, text size and tabs saving to `user.db` and
   surviving a reload, older `localStorage` data being copied across on first run, and a failed save showing an error
   and keeping the unsaved note text. Also bookmarking from the reader, labelling and removing a bookmark on the Bookmarks page,
-  the Books tab in the Study Guide, and searching imported books, all against a seeded `user.db`.
+  the Books tab in the Study Guide, and searching imported books, all against a seeded `user.db`. Importing an EPUB, a
+  DOCX and a PDF through the file picker, and a PDF through the production build's Worker under the strict CSP. The
+  extractors also ran on one real EPUB (the licensed ESV, 12.5 MB, in about 2 seconds). No real-world DOCX or PDF has
+  been tried: those were only built in the tests.
 
 **Not verified:** saving notes and highlights inside the desktop window. The `user_query` and `user_batch` commands are
 tested through Tauri's mock IPC runtime, but not in a running app with the real web view and capability files. Windows and Linux, narrow phone-width layouts (the primary navigation now has seven items, which has not been checked on a phone), and accessibility with a screen reader. The packaged macOS desktop app is in early preview (v0.0.1) and has had little real-world testing. See [ACCESSIBILITY.md](ACCESSIBILITY.md) for the gaps found so far.
@@ -284,6 +288,11 @@ Measured details are in [DATA_SOURCES.md](DATA_SOURCES.md). The ones that matter
   production build in a browser with the same policy (app, import worker and inline styles work; inline scripts and
   outside requests are blocked), but not yet in the packaged desktop window, where Tauri adds its own script hashes.
 - Hebrew, Greek and English verse numbers are mapped, with a handful of documented exceptions.
+- **Imported books are read for their text only.** A PDF needs a text layer: a scan is refused, because there is no OCR.
+  PDF paragraphs, headings and page breaks are guessed from where the text sits, so a complicated layout (columns,
+  footnotes, tables) can come out jumbled. "p. 12" is the PDF's own page, which can differ from the printed number.
+  EPUBs with DRM are refused. DOCX footnotes, headers and footers are not read, and the old binary `.doc` is not
+  supported. PDFs whose fonts lack Unicode mappings, and scripts that need extra font data, are untested.
 
 ## Roadmap
 
@@ -292,7 +301,7 @@ The live roadmap, with status for each item, is the [Pellikan GitHub Project](ht
 1. Refine the packaged desktop app on macOS. CI already runs the Node and Rust tests (Linux only).
 2. Move notes, highlights and bookmarks into `user.db`. Done: notes, highlights, bookmarks, tabs and preferences.
 3. Import your own books into `user.db`, with Scripture references found and linked. Plain text and Markdown import,
-   the passages that cite the verse you are reading, and search over your books work; next are EPUB, DOCX and PDF.
+   the passages that cite the verse you are reading, search over your books, and EPUB, DOCX and PDF import all work.
 4. AI-assisted search and questions with a bring-your-own key (Anthropic or Gemini), keys in the OS keychain and never
    in a database. Every answer carries a plain notice: AI can summarize and cross-reference text, but it cannot
    discern what the Spirit is saying. It is a concordance with a mouth, not a teacher.
@@ -311,4 +320,5 @@ agents. Accessibility problems are bugs: see [ACCESSIBILITY.md](ACCESSIBILITY.md
 The code is licensed under the **GNU Affero General Public License v3.0** (see [LICENSE](LICENSE)). The data is licensed separately: see
 [DATA_SOURCES.md](DATA_SOURCES.md). The built database contains CC BY-SA material (MorphGNT and Strong's Greek), so
 distributing it carries ShareAlike obligations. Every source's license and required credit line also appear in the
-app on the **Credits** page.
+app on the **Credits** page. Two third-party libraries read book files: [pdf.js](https://github.com/mozilla/pdf.js)
+(Apache-2.0) for PDFs and [fflate](https://github.com/101arrowz/fflate) (MIT) to unzip EPUB and DOCX.

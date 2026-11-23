@@ -2,8 +2,9 @@
 // and the Scripture references found in each passage (scanReferences).
 //
 // Pure: text in, data out. It runs in a Web Worker in the app (app/workers/extract.worker.ts) so that scanning a long
-// book does not freeze the window, and directly in Node in the tests. EPUB, DOCX and PDF will each get their own
-// extractor that produces the same ImportedDocument.
+// book does not freeze the window, and directly in Node in the tests. Each format has its own extractor (doc-epub.ts,
+// doc-docx.ts, doc-pdf.ts, and the text and Markdown readers below) that produces headings and paragraphs; this file
+// chunks them and finds the references, the same way for all.
 //
 // Decisions worth knowing:
 //   - Chunks are about 1,500 characters, never longer than 2,500, and never cross a heading. A chunk is the unit that is
@@ -18,8 +19,14 @@
 // Keep this file free of enums and parameter properties: it is imported directly by Node as well as by the Nuxt build.
 
 import { scanReferences, splitByChapter } from './reference-scan.ts'
+import { ImportError } from './doc-blocks.ts'
+import type { Block, ExtractedBlocks } from './doc-blocks.ts'
+import { extractEpub } from './doc-epub.ts'
+import { extractDocx } from './doc-docx.ts'
+import { extractPdf } from './doc-pdf.ts'
 
-export type ImportFormat = 'txt' | 'md'
+export { ImportError }
+export type ImportFormat = 'txt' | 'md' | 'epub' | 'docx' | 'pdf'
 
 export interface ImportRef {
   /** Canonical book id 1..66 and English chapter and verse numbers, as in doc_refs. */
@@ -33,7 +40,7 @@ export interface ImportRef {
 export interface ImportChunk {
   seq: number
   heading: string | null
-  /** A human location such as "p. 112". Text and Markdown have none; page-based formats will. */
+  /** A human location such as "p. 112" or "pp. 112-113". Only PDFs have one (the page of the PDF, which can differ from the printed page number). */
   loc: string | null
   text: string
   refs: ImportRef[]
@@ -47,8 +54,13 @@ export interface ImportedDocument {
   chars: number
 }
 
-/** Largest file the app accepts. Text is small; a file past this is almost certainly not a book. */
+/** Largest text or Markdown file the app accepts. Text is small; a file past this is almost certainly not a book. */
 export const MAX_IMPORT_BYTES = 25 * 1024 * 1024
+/** Largest file of each format. EPUB, DOCX and PDF carry images and fonts, so a real book is far bigger than its text. */
+const MAX_BYTES: Record<ImportFormat, number> = { txt: MAX_IMPORT_BYTES, md: MAX_IMPORT_BYTES, epub: 100 * 1024 * 1024, docx: 50 * 1024 * 1024, pdf: 100 * 1024 * 1024 }
+export const maxBytesFor = (format: ImportFormat): number => MAX_BYTES[format]
+/** Most text kept from one file. A 1,000-page book is about 3 million characters. */
+export const MAX_EXTRACTED_CHARS = 50_000_000
 const TARGET_CHUNK = 1500
 const MAX_CHUNK = 2500
 
@@ -57,6 +69,9 @@ export function formatOf(fileName: string): ImportFormat | null {
   const ext = /\.([a-z0-9]+)$/i.exec(fileName)?.[1]?.toLowerCase()
   if (ext === 'txt' || ext === 'text') return 'txt'
   if (ext === 'md' || ext === 'markdown') return 'md'
+  if (ext === 'epub') return 'epub'
+  if (ext === 'docx') return 'docx'
+  if (ext === 'pdf') return 'pdf'
   return null
 }
 
@@ -95,8 +110,6 @@ export function textProblem(text: string): string | null {
 // ---------------------------------------------------------------------------------------------
 // Reading the file into blocks: headings and paragraphs
 // ---------------------------------------------------------------------------------------------
-
-type Block = { kind: 'heading'; text: string; level: number } | { kind: 'para'; text: string }
 
 function normalize(raw: string): string {
   let text = raw.replace(/^﻿/, '').replace(/\r\n?/g, '\n').replace(/\f/g, '\n\n')
@@ -268,11 +281,18 @@ function chunkBlocks(blocks: Block[]): ImportChunk[] {
   let heading: string | null = null
   let paras: string[] = []
   let size = 0
+  let firstPage = 0 // the pages the chunk's paragraphs start on, for PDFs
+  let lastPage = 0
   const flush = () => {
     const text = paras.join('\n\n').trim()
-    if (text) chunks.push({ seq: chunks.length, heading, loc: null, text, refs: refsFor(heading, text) })
+    if (text) {
+      const loc = !firstPage ? null : firstPage === lastPage ? `p. ${firstPage}` : `pp. ${firstPage}-${lastPage}`
+      chunks.push({ seq: chunks.length, heading, loc, text, refs: refsFor(heading, text) })
+    }
     paras = []
     size = 0
+    firstPage = 0
+    lastPage = 0
   }
   for (const b of blocks) {
     if (b.kind === 'heading') {
@@ -282,6 +302,7 @@ function chunkBlocks(blocks: Block[]): ImportChunk[] {
     }
     for (const piece of b.text.length > MAX_CHUNK ? splitLong(b.text) : [b.text]) {
       if (size > 0 && size + piece.length > TARGET_CHUNK) flush()
+      if (b.page) { firstPage ||= b.page; lastPage = b.page }
       paras.push(piece)
       size += piece.length + 2
     }
@@ -290,9 +311,23 @@ function chunkBlocks(blocks: Block[]): ImportChunk[] {
   return chunks
 }
 
+/** The chunks, title and counts for a document, from what an extractor read. Throws if there is no text. */
+function finish(extracted: ExtractedBlocks, fileName: string): ImportedDocument {
+  const chunks = chunkBlocks(extracted.blocks)
+  if (!chunks.length) throw new ImportError('No text was found in this file.')
+  const chars = chunks.reduce((n, c) => n + c.text.length, 0)
+  if (chars > MAX_EXTRACTED_CHARS) throw new ImportError('This file holds far more text than a book does, so it was not imported.')
+  return {
+    title: (extracted.title ?? titleFromFileName(fileName)).slice(0, 200),
+    author: extracted.author ? extracted.author.slice(0, 200) : null,
+    chunks,
+    chars,
+  }
+}
+
 /**
- * Extracts a document from decoded text. Throws an Error with a message fit to show the user if there is nothing to
- * import. `fileName` supplies the title when the file does not name one.
+ * Extracts a document from decoded text (a .txt or .md file). Throws an Error with a message fit to show the user if
+ * there is nothing to import. `fileName` supplies the title when the file does not name one.
  */
 export function extractDocument(raw: string, format: ImportFormat, fileName: string): ImportedDocument {
   const problem = textProblem(raw)
@@ -311,13 +346,19 @@ export function extractDocument(raw: string, format: ImportFormat, fileName: str
   } else {
     blocks = textBlocks(text)
   }
+  return finish({ title, author, blocks }, fileName)
+}
 
-  const chunks = chunkBlocks(blocks)
-  if (!chunks.length) throw new Error('No text was found in this file.')
-  return {
-    title: (title ?? titleFromFileName(fileName)).slice(0, 200),
-    author: author ? author.slice(0, 200) : null,
-    chunks,
-    chars: chunks.reduce((n, c) => n + c.text.length, 0),
+/**
+ * Extracts a document of any supported format. Text and Markdown take decoded text (or bytes, which are decoded as
+ * UTF-8); EPUB, DOCX and PDF take the file's bytes. Async because reading a PDF is. Throws an Error with a message
+ * fit to show the user.
+ */
+export async function extractFile(input: string | Uint8Array, format: ImportFormat, fileName: string): Promise<ImportedDocument> {
+  if (format === 'txt' || format === 'md') {
+    return extractDocument(typeof input === 'string' ? input : new TextDecoder('utf-8').decode(input), format, fileName)
   }
+  if (typeof input === 'string') throw new Error(`A ${format.toUpperCase()} file has to be read as bytes, not text.`)
+  const extracted = format === 'epub' ? extractEpub(input) : format === 'docx' ? extractDocx(input) : await extractPdf(input)
+  return finish(extracted, fileName)
 }

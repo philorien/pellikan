@@ -28,8 +28,10 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",
+    "fflate": "^0.8.3",
     "lucide-vue-next": "^1.0.0",
     "nuxt": "^4.6.3",
+    "pdfjs-dist": "^6.5.438",
     "vue": "^3.5.44"
   },
   "devDependencies": {
@@ -40,7 +42,6 @@
     "eslint": "^10.15.0",
     "eslint-plugin-vue": "^10.12.1",
     "eslint-plugin-vuejs-accessibility": "^2.6.3",
-    "fflate": "^0.8.3",
     "globals": "^17.14.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.0",
