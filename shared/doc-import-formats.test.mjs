@@ -113,6 +113,14 @@ test('an EPUB that is DRM-protected is refused with a message, not read as gibbe
   await rejects(extractFile(bytes, 'epub', 'x.epub'), /DRM/)
 })
 
+test('DRM is detected when the chapter name needs percent-encoding in encryption.xml', async () => {
+  const chs = [{ file: 'Chapter 1.xhtml', href: 'Chapter%201.xhtml', html: xhtml('<p>Hi.</p>') }, { file: 'Kapitel \u00e4.xhtml', href: 'Kapitel%20%C3%A4.xhtml', html: xhtml('<p>Hi.</p>') }]
+  for (const [i, uri] of [[0, 'OEBPS/Chapter%201.xhtml'], [1, 'OEBPS/Kapitel%20%C3%A4.xhtml']]) {
+    const encryption = `<encryption><EncryptedData><CipherData><CipherReference URI='${uri}'/></CipherData></EncryptedData></encryption>`
+    await rejects(extractFile(makeEpub({ chapters: [chs[i]], encryption }), 'epub', 'x.epub'), /DRM/)
+  }
+})
+
 test('font obfuscation in encryption.xml is not DRM', async () => {
   const bytes = makeEpub({ chapters: [chapters[0]], encryption: '<encryption><EncryptedData><CipherReference URI="OEBPS/fonts/a.otf"/></EncryptedData></encryption>' })
   assert.equal((await extractFile(bytes, 'epub', 'x.epub')).chunks.length, 1)
@@ -208,8 +216,9 @@ test('an entry that lies about being small is cut off at the size it declared, n
 
 test('many entries that together declare too much are refused', () => {
   const files = {}
-  for (let i = 0; i < 4; i++) files[`f${i}.txt`] = 'x'
-  const bytes = lieAboutSize(zip(files), 60 * 1024 * 1024) // each under the per-entry limit, together over the total
+  // Each entry must hold enough real bytes that its declared size is not rejected on ratio first (400 KB stays under 200:1 of 60 MB).
+  for (let i = 0; i < 4; i++) files[`f${i}.txt`] = Uint8Array.from({ length: 400_000 }, (_, j) => (j * 2654435761 + i) >>> 24)
+  const bytes = lieAboutSize(zipSync(files, { level: 0 }), 60 * 1024 * 1024) // each under the per-entry limit, together over the total
   assert.throws(() => readZip(bytes, () => true), /far more text than a book/)
 })
 
@@ -283,4 +292,17 @@ test('a Node Buffer is accepted for every format, and the caller\'s bytes are le
   assert.equal((await extractFile(pdf, 'pdf', 'x.pdf')).chunks.length, 1)
   assert.deepEqual(pdf, before, 'extraction does not detach or change the input')
   assert.equal((await extractFile(Buffer.from(makeDocx({ body: p('Hello there.') })), 'docx', 'x.docx')).chunks.length, 1)
+})
+
+test('an entry declared as hugely larger than it is stored is refused before inflating', async () => {
+  // 2 MB of zeros deflates to about 2 KB, a ratio near 1000:1, which no book text reaches.
+  const bytes = zipSync({ 'word/document.xml': new Uint8Array(2 * 1024 * 1024) })
+  assert.throws(() => readZip(bytes, () => true), /compressed far more than any book/)
+  // Ordinary text is untouched.
+  const words = ['the', 'God', 'said', 'and', 'light', 'earth', 'water', 'day', 'good', 'heaven', 'beginning', 'night']
+  let seed = 7
+  let body = ''
+  while (body.length < 1_500_000) { seed = (seed * 1103515245 + 12345) % 2147483648; body += words[seed % words.length] + (seed % 7 === 0 ? '. ' : ' ') }
+  const text = zipSync({ 'a.txt': new TextEncoder().encode(body) })
+  assert.ok(readZip(text, () => true)['a.txt'].length > 1_000_000)
 })

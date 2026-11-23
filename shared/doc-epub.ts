@@ -60,14 +60,19 @@ export function extractEpub(bytes: Uint8Array): ExtractedBlocks {
   if (!chapters.length) throw new ImportError('No readable chapters were found in this EPUB.')
 
   // DRM: encryption.xml lists encrypted files. Font obfuscation also appears there, so only a chapter being listed counts.
+  // The URIs are percent-encoded ("OEBPS/Chapter%201.xhtml") while the manifest paths above are decoded, so decode these
+  // too before comparing. Compared as parsed attribute values, so attribute order and quoting do not matter.
   const enc = meta['META-INF/encryption.xml']
   if (enc) {
-    const listed = decodeXmlBytes(enc)
-    for (const ch of chapters) {
-      const name = ch.href
-      if (listed.includes(`"${name}"`) || listed.includes(`'${name}'`)) {
-        throw new ImportError('This EPUB is protected by DRM, so Pellikan cannot read it. Pellikan does not remove DRM.')
-      }
+    const listed = new Set<string>()
+    for (const tok of tokenize(decodeXmlBytes(enc))) {
+      const uri = tok.t === 'open' && tok.name.endsWith('CipherReference') ? tok.attrs.URI : undefined
+      if (uri === undefined) continue
+      listed.add(uri)
+      try { listed.add(decodeURIComponent(uri)) } catch { /* keep it as written */ }
+    }
+    if (chapters.some((ch) => listed.has(ch.href))) {
+      throw new ImportError('This EPUB is protected by DRM, so Pellikan cannot read it. Pellikan does not remove DRM.')
     }
   }
 

@@ -83,7 +83,8 @@ export const EXTRACT_TIMEOUT_MS = 30_000
 /**
  * The wait for a given file. Text gets the base. EPUB, DOCX and PDF are slower and much bigger on disk than their text
  * (a PDF is read page by page), so they get more time per megabyte, up to ten minutes. Giving up early would not make
- * anything faster: the fallback does the same work on the main thread, where it freezes the window.
+ * anything faster: the fallback does the same work on the main thread, where it freezes the window. For EPUB and DOCX
+ * there is no fallback after a timeout at all (see `extractOffThread`).
  */
 export function extractTimeoutFor(format: ImportFormat, bytes: number): number {
   if (format === 'txt' || format === 'md') return EXTRACT_TIMEOUT_MS
@@ -93,7 +94,9 @@ export function extractTimeoutFor(format: ImportFormat, bytes: number): number {
 /**
  * Extracts in a Worker. If no Worker can be started, if it fails to load or crashes, or if it never answers, extracts on
  * this thread instead, so a Worker problem costs a brief freeze and not the ability to import (or a picker that stays
- * disabled for the rest of the session).
+ * disabled for the rest of the session). The exception is a timeout on a ZIP-based format (EPUB, DOCX): that is a file
+ * keeping the Worker busy, and repeating the work on the main thread would freeze the window for as long, so it is an
+ * error instead.
  */
 export function extractOffThread(input: string | Uint8Array, format: ImportFormat, name: string, timeoutMs = EXTRACT_TIMEOUT_MS): Promise<ImportedDocument> {
   // Text and Markdown go in as decoded text, the other formats as bytes. The bytes are copied to the Worker, not
@@ -115,7 +118,15 @@ export function extractOffThread(input: string | Uint8Array, format: ImportForma
       worker.terminate()
       inline().then(resolve, reject)
     }
-    const timer = setTimeout(fallBack, timeoutMs)
+    const zipBased = format === 'epub' || format === 'docx'
+    const timeOut = () => {
+      if (!zipBased) return fallBack()
+      if (settled) return
+      settled = true
+      worker.terminate()
+      reject(new Error('This file took too long to unpack, so it was not imported. It may be damaged or not a real book.'))
+    }
+    const timer = setTimeout(timeOut, timeoutMs)
     worker.onmessage = (e: MessageEvent<{ ok: true; doc: ImportedDocument } | { ok: false; error: string }>) => {
       // Only our own answer counts. pdf.js attaches itself to the Worker it is loaded into and posts a "ready" message
       // of its own, which is not a result and must not be taken for one.

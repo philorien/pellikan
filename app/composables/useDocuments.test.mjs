@@ -239,3 +239,13 @@ test('a Worker that crashes does not stop an import, and nothing is left "import
   assert.equal(docs.importing.value, null) // the file picker is enabled again
   assert.equal(docs.error.value, null)
 })
+
+test('a ZIP-based import that times out is an error, not a second run on the main thread', async () => {
+  for (const format of ['epub', 'docx']) {
+    await withWorker(() => {}, async (workers) => {
+      // Bytes that would throw "not a valid ..." if they were extracted inline: the timeout message must win instead.
+      await assert.rejects(extractOffThread(new Uint8Array([1, 2, 3]), format, `a.${format}`, 20), /took too long to unpack/)
+      assert.equal(workers[0].terminated, true)
+    })
+  }
+})
